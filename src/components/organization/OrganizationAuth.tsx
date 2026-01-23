@@ -1,0 +1,223 @@
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { ArrowLeft, Heart, Mail, Phone, MapPin, Lock, Eye, EyeOff, FileCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Logo } from "@/components/Logo";
+import { useAppStore } from "@/store/appStore";
+import type { Organization } from "@/types";
+
+interface OrganizationAuthProps {
+  onBack: () => void;
+  onSuccess: () => void;
+}
+
+export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) => {
+  const [isLogin, setIsLogin] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    password: "",
+    organizationType: "shelter" as Organization["organizationType"],
+  });
+  const { setCurrentUser, addOrganization } = useAppStore();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const org: Organization = {
+      id: `org-${Date.now()}`,
+      name: formData.name || "Organization User",
+      email: formData.email,
+      phone: formData.phone,
+      role: "organization",
+      address: formData.address,
+      location: formData.address,
+      documentVerified: true,
+      organizationType: formData.organizationType,
+    };
+    
+    if (!isLogin) {
+      addOrganization(org);
+    }
+    setCurrentUser(org);
+    onSuccess();
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-hero p-6">
+      <div className="max-w-md mx-auto">
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="mb-6"
+        >
+          <Button variant="ghost" onClick={onBack} className="gap-2">
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </Button>
+        </motion.div>
+
+        <motion.div
+          className="text-center mb-8"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <Logo size="md" />
+          <h1 className="mt-6 text-2xl font-bold text-foreground">
+            {isLogin ? "Welcome Back" : "Register Your Organization"}
+          </h1>
+          <p className="mt-2 text-muted-foreground">
+            {isLogin
+              ? "Sign in to receive food donations"
+              : "Join to receive surplus food donations"}
+          </p>
+        </motion.div>
+
+        <motion.div
+          className="bg-card rounded-2xl p-6 shadow-lg border border-border/50"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {!isLogin && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="name">Organization Name</Label>
+                  <div className="relative">
+                    <Heart className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="name"
+                      placeholder="Your Organization Name"
+                      className="pl-10"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="type">Organization Type</Label>
+                  <select
+                    id="type"
+                    className="w-full h-11 px-3 rounded-lg border border-input bg-background text-sm"
+                    value={formData.organizationType}
+                    onChange={(e) => setFormData({ ...formData, organizationType: e.target.value as Organization["organizationType"] })}
+                  >
+                    <option value="shelter">Shelter</option>
+                    <option value="food_bank">Food Bank</option>
+                    <option value="community_kitchen">Community Kitchen</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="your@organization.org"
+                  className="pl-10"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            {!isLogin && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="+1 234 567 8900"
+                      className="pl-10"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="address"
+                      placeholder="123 Main Street, City"
+                      className="pl-10"
+                      value={formData.address}
+                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <FileCheck className="w-4 h-4" />
+                    Document verification will be completed automatically
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  className="pl-10 pr-10"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <Button type="submit" variant="accent" className="w-full" size="lg">
+              {isLogin ? "Sign In" : "Create Account"}
+            </Button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              type="button"
+              onClick={() => setIsLogin(!isLogin)}
+              className="text-sm text-primary hover:underline"
+            >
+              {isLogin
+                ? "Don't have an account? Register"
+                : "Already have an account? Sign In"}
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+};
