@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { User, FoodItem, Delivery, Restaurant, Organization, Volunteer } from "@/types";
+import type { User, FoodItem, Delivery, Restaurant, Organization, Volunteer, FoodRequest, Notification } from "@/types";
 
 interface AppState {
   currentUser: User | null;
@@ -8,6 +8,9 @@ interface AppState {
   deliveries: Delivery[];
   organizations: Organization[];
   volunteers: Volunteer[];
+  restaurants: Restaurant[];
+  foodRequests: FoodRequest[];
+  notifications: Notification[];
   
   // Auth actions
   setCurrentUser: (user: User | null) => void;
@@ -26,6 +29,27 @@ interface AppState {
   // Volunteer actions
   addVolunteer: (volunteer: Volunteer) => void;
   updateVolunteerEarnings: (id: string, amount: number) => void;
+  setVolunteerAvailability: (id: string, available: boolean) => void;
+  
+  // Restaurant actions
+  addRestaurant: (restaurant: Restaurant) => void;
+  
+  // Food Request actions
+  addFoodRequest: (request: FoodRequest) => void;
+  updateFoodRequest: (id: string, updates: Partial<FoodRequest>) => void;
+  
+  // Notification actions
+  addNotification: (notification: Notification) => void;
+  markNotificationRead: (id: string) => void;
+  clearNotifications: (userId: string) => void;
+  
+  // Getters
+  getDeliveriesForRestaurant: (restaurantId: string) => Delivery[];
+  getDeliveriesForOrganization: (organizationId: string) => Delivery[];
+  getDeliveriesForVolunteer: (volunteerId: string) => Delivery[];
+  getPendingDeliveries: () => Delivery[];
+  getActiveFoodRequests: () => FoodRequest[];
+  getNotificationsForUser: (userId: string) => Notification[];
   
   // Reset
   logout: () => void;
@@ -43,6 +67,8 @@ const mockOrganizations: Organization[] = [
     location: "Downtown",
     documentVerified: true,
     organizationType: "shelter",
+    needsFood: true,
+    foodNeeds: ["Prepared meals", "Fresh produce"],
   },
   {
     id: "org-2",
@@ -54,6 +80,8 @@ const mockOrganizations: Organization[] = [
     location: "Midtown",
     documentVerified: true,
     organizationType: "food_bank",
+    needsFood: true,
+    foodNeeds: ["Canned goods", "Dry goods", "Fresh produce"],
   },
   {
     id: "org-3",
@@ -65,6 +93,8 @@ const mockOrganizations: Organization[] = [
     location: "Eastside",
     documentVerified: true,
     organizationType: "community_kitchen",
+    needsFood: true,
+    foodNeeds: ["Prepared meals", "Ingredients"],
   },
 ];
 
@@ -81,6 +111,7 @@ const mockVolunteers: Volunteer[] = [
     completedDeliveries: 23,
     rating: 4.9,
     location: "Downtown",
+    isAvailable: true,
   },
   {
     id: "vol-2",
@@ -93,17 +124,48 @@ const mockVolunteers: Volunteer[] = [
     completedDeliveries: 18,
     rating: 4.7,
     location: "Midtown",
+    isAvailable: true,
+  },
+];
+
+// Mock food requests from organizations
+const mockFoodRequests: FoodRequest[] = [
+  {
+    id: "req-1",
+    organizationId: "org-1",
+    organizationName: "Hope Shelter",
+    organizationAddress: "123 Main Street",
+    foodTypes: ["Prepared meals", "Fresh produce"],
+    quantity: "50+ servings",
+    urgency: "high",
+    notes: "Evening meal needed for 50 residents",
+    status: "active",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "req-2",
+    organizationId: "org-2",
+    organizationName: "City Food Bank",
+    organizationAddress: "456 Oak Avenue",
+    foodTypes: ["Canned goods", "Dry goods"],
+    quantity: "Any amount welcome",
+    urgency: "medium",
+    status: "active",
+    createdAt: new Date().toISOString(),
   },
 ];
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       currentUser: null,
       foodItems: [],
       deliveries: [],
       organizations: mockOrganizations,
       volunteers: mockVolunteers,
+      restaurants: [],
+      foodRequests: mockFoodRequests,
+      notifications: [],
 
       setCurrentUser: (user) => set({ currentUser: user }),
 
@@ -141,6 +203,60 @@ export const useAppStore = create<AppState>()(
               : v
           ),
         })),
+
+      setVolunteerAvailability: (id, available) =>
+        set((state) => ({
+          volunteers: state.volunteers.map((v) =>
+            v.id === id ? { ...v, isAvailable: available } : v
+          ),
+        })),
+
+      addRestaurant: (restaurant) =>
+        set((state) => ({ restaurants: [...state.restaurants, restaurant] })),
+
+      addFoodRequest: (request) =>
+        set((state) => ({ foodRequests: [...state.foodRequests, request] })),
+
+      updateFoodRequest: (id, updates) =>
+        set((state) => ({
+          foodRequests: state.foodRequests.map((r) =>
+            r.id === id ? { ...r, ...updates } : r
+          ),
+        })),
+
+      addNotification: (notification) =>
+        set((state) => ({ notifications: [...state.notifications, notification] })),
+
+      markNotificationRead: (id) =>
+        set((state) => ({
+          notifications: state.notifications.map((n) =>
+            n.id === id ? { ...n, read: true } : n
+          ),
+        })),
+
+      clearNotifications: (userId) =>
+        set((state) => ({
+          notifications: state.notifications.filter((n) => n.userId !== userId),
+        })),
+
+      // Getters
+      getDeliveriesForRestaurant: (restaurantId) =>
+        get().deliveries.filter((d) => d.restaurantId === restaurantId),
+
+      getDeliveriesForOrganization: (organizationId) =>
+        get().deliveries.filter((d) => d.organizationId === organizationId),
+
+      getDeliveriesForVolunteer: (volunteerId) =>
+        get().deliveries.filter((d) => d.volunteerId === volunteerId),
+
+      getPendingDeliveries: () =>
+        get().deliveries.filter((d) => d.status === "pending" && !d.volunteerId),
+
+      getActiveFoodRequests: () =>
+        get().foodRequests.filter((r) => r.status === "active"),
+
+      getNotificationsForUser: (userId) =>
+        get().notifications.filter((n) => n.userId === userId),
 
       logout: () => set({ currentUser: null }),
     }),

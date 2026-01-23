@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Package, Truck, Clock, MapPin, CheckCircle, XCircle,
-  LogOut, DollarSign, Star, History, Bell
+  LogOut, DollarSign, Star, History, Bell, Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { DeliveryTracker } from "../shared/DeliveryTracker";
 import { useAppStore } from "@/store/appStore";
+import { useToast } from "@/hooks/use-toast";
+import { createDeliveryNotifications } from "@/lib/notifications";
 import type { Delivery, DeliveryRequest, Volunteer } from "@/types";
 
 interface VolunteerDashboardProps {
@@ -15,7 +17,8 @@ interface VolunteerDashboardProps {
 }
 
 export const VolunteerDashboard = ({ onLogout }: VolunteerDashboardProps) => {
-  const { currentUser, deliveries, foodItems, organizations, updateDelivery } = useAppStore();
+  const { currentUser, deliveries, updateDelivery, addNotification, notifications } = useAppStore();
+  const { toast } = useToast();
   const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
   const [activeTab, setActiveTab] = useState<"requests" | "active" | "history">("requests");
 
@@ -28,26 +31,69 @@ export const VolunteerDashboard = ({ onLogout }: VolunteerDashboardProps) => {
   );
   const completedDeliveries = myDeliveries.filter(d => d.status === "delivered");
 
-  // Simulate pending pickup requests (deliveries waiting for a volunteer)
+  // Get PENDING delivery requests (not yet assigned to any volunteer)
   const pendingRequests: DeliveryRequest[] = deliveries
-    .filter(d => d.status === "pending" || (!d.volunteerId && d.status !== "delivered"))
+    .filter(d => d.status === "pending" && !d.volunteerId)
     .map(d => ({
       id: d.id,
       delivery: d,
-      distance: `${(Math.random() * 3 + 0.5).toFixed(1)} km`,
-      payment: Math.floor(Math.random() * 10) + 5,
-      estimatedTime: `${Math.floor(Math.random() * 15) + 10} min`,
+      distance: d.distance || `${(Math.random() * 3 + 0.5).toFixed(1)} km`,
+      payment: d.payment || Math.floor(Math.random() * 10) + 5,
+      estimatedTime: d.estimatedTime || `${Math.floor(Math.random() * 15) + 10} min`,
     }));
+
+  // Get unread notifications for this volunteer
+  const myNotifications = notifications.filter(
+    n => n.userId === volunteer?.id && !n.read
+  );
+
+  // Show toast for new notifications
+  useEffect(() => {
+    if (myNotifications.length > 0) {
+      const latest = myNotifications[myNotifications.length - 1];
+      toast({
+        title: latest.title,
+        description: latest.message,
+      });
+    }
+  }, [myNotifications.length]);
 
   const acceptRequest = (request: DeliveryRequest) => {
     if (!volunteer) return;
-    updateDelivery(request.id, {
+    
+    const updatedDelivery = {
+      ...request.delivery,
       volunteerId: volunteer.id,
       volunteerName: volunteer.name,
-      status: "volunteer_assigned",
+      volunteerPhone: volunteer.phone,
+      status: "volunteer_assigned" as const,
       distance: request.distance,
       estimatedTime: request.estimatedTime,
       payment: request.payment,
+    };
+
+    updateDelivery(request.id, updatedDelivery);
+
+    // Create notifications for restaurant and organization
+    const notifs = createDeliveryNotifications(
+      { ...request.delivery, ...updatedDelivery },
+      "volunteer_assigned"
+    );
+    notifs.forEach(addNotification);
+
+    toast({
+      title: "Request Accepted! 🎉",
+      description: `You're now assigned to deliver ${request.delivery.foodItem.name}`,
+    });
+
+    // Switch to active tab
+    setActiveTab("active");
+  };
+
+  const rejectRequest = (requestId: string) => {
+    toast({
+      title: "Request Declined",
+      description: "The request has been returned to the pool.",
     });
   };
 
@@ -68,6 +114,14 @@ export const VolunteerDashboard = ({ onLogout }: VolunteerDashboardProps) => {
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <Logo size="sm" />
           <div className="flex items-center gap-4">
+            {myNotifications.length > 0 && (
+              <div className="relative">
+                <Bell className="w-5 h-5 text-muted-foreground" />
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent text-accent-foreground rounded-full text-xs flex items-center justify-center">
+                  {myNotifications.length}
+                </span>
+              </div>
+            )}
             <span className="text-sm text-muted-foreground">
               {currentUser?.name}
             </span>
@@ -121,7 +175,7 @@ export const VolunteerDashboard = ({ onLogout }: VolunteerDashboardProps) => {
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
           {[
-            { id: "requests", label: "Requests", count: pendingRequests.length },
+            { id: "requests", label: "Available", count: pendingRequests.length },
             { id: "active", label: "Active", count: activeDeliveries.length },
             { id: "history", label: "History", count: completedDeliveries.length },
           ].map((tab) => (
@@ -159,7 +213,7 @@ export const VolunteerDashboard = ({ onLogout }: VolunteerDashboardProps) => {
                 </div>
                 <h3 className="font-semibold text-foreground mb-2">No pickup requests</h3>
                 <p className="text-muted-foreground text-sm">
-                  New delivery requests will appear here
+                  New delivery requests from restaurants will appear here
                 </p>
               </div>
             ) : (
@@ -190,9 +244,9 @@ export const VolunteerDashboard = ({ onLogout }: VolunteerDashboardProps) => {
                             {request.delivery.foodItem?.name || "Food Delivery"}
                           </h4>
                           <p className="text-sm text-muted-foreground">
-                            {request.delivery.foodItem?.restaurantName} → {request.delivery.organizationName}
+                            {request.delivery.foodItem?.quantity} {request.delivery.foodItem?.unit}
                           </p>
-                          <div className="flex items-center gap-3 mt-1">
+                          <div className="flex items-center gap-3 mt-2">
                             <span className="text-xs flex items-center gap-1 text-muted-foreground">
                               <MapPin className="w-3 h-3" />
                               {request.distance}
@@ -209,14 +263,47 @@ export const VolunteerDashboard = ({ onLogout }: VolunteerDashboardProps) => {
                         <p className="text-xs text-muted-foreground">earn</p>
                       </div>
                     </div>
+
+                    {/* Pickup & Delivery Info */}
+                    <div className="bg-muted/50 rounded-lg p-3 mb-4">
+                      <div className="flex items-start gap-3 mb-2">
+                        <div className="w-6 h-6 bg-primary/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <Building2 className="w-3 h-3 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Pickup from</p>
+                          <p className="text-sm font-medium text-foreground">
+                            {request.delivery.restaurantName || request.delivery.foodItem?.restaurantName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {request.delivery.restaurantAddress || request.delivery.foodItem?.restaurantAddress}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-6 h-6 bg-accent/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <MapPin className="w-3 h-3 text-accent" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Deliver to</p>
+                          <p className="text-sm font-medium text-foreground">
+                            {request.delivery.organizationName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {request.delivery.organizationAddress}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="flex gap-3">
                       <Button
                         variant="outline"
                         className="flex-1"
-                        onClick={() => {}}
+                        onClick={() => rejectRequest(request.id)}
                       >
                         <XCircle className="w-4 h-4 mr-2" />
-                        Reject
+                        Pass
                       </Button>
                       <Button
                         variant="hero"

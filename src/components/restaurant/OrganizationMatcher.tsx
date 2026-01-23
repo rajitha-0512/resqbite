@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, MapPin, Clock, Star, CheckCircle, Truck } from "lucide-react";
+import { ArrowLeft, MapPin, Clock, Star, CheckCircle, Truck, Send, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/appStore";
+import { useToast } from "@/hooks/use-toast";
+import { createDeliveryNotifications } from "@/lib/notifications";
 import type { FoodItem, Delivery, Organization, Volunteer } from "@/types";
 
 interface OrganizationMatcherProps {
@@ -16,10 +18,14 @@ export const OrganizationMatcher = ({
   onBack,
   onDeliveryCreated,
 }: OrganizationMatcherProps) => {
-  const { organizations, volunteers, currentUser } = useAppStore();
-  const [step, setStep] = useState<"org" | "volunteer">("org");
+  const { organizations, volunteers, currentUser, addNotification } = useAppStore();
+  const { toast } = useToast();
+  const [step, setStep] = useState<"org" | "volunteer" | "confirm">("org");
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
   const [selectedVolunteer, setSelectedVolunteer] = useState<Volunteer | null>(null);
+  const [skipVolunteer, setSkipVolunteer] = useState(false);
+
+  const availableVolunteers = volunteers.filter(v => v.isAvailable !== false);
 
   const handleOrgSelect = (org: Organization) => {
     setSelectedOrg(org);
@@ -30,23 +36,54 @@ export const OrganizationMatcher = ({
     setSelectedVolunteer(volunteer);
   };
 
+  const handleSkipVolunteer = () => {
+    setSkipVolunteer(true);
+    setSelectedVolunteer(null);
+  };
+
   const confirmDelivery = () => {
-    if (!selectedOrg || !selectedVolunteer || !currentUser) return;
+    if (!selectedOrg || !currentUser) return;
+
+    const payment = Math.floor(Math.random() * 10) + 5;
+    const distance = `${(Math.random() * 5 + 1).toFixed(1)} km`;
+    const estimatedTime = `${Math.floor(Math.random() * 20) + 15} min`;
 
     const delivery: Delivery = {
       id: `del-${Date.now()}`,
       foodItemId: foodItem.id,
-      foodItem: foodItem,
+      foodItem: {
+        ...foodItem,
+        restaurantAddress: currentUser.location || (currentUser as any).address,
+      },
       restaurantId: currentUser.id,
+      restaurantName: currentUser.name,
+      restaurantAddress: currentUser.location || (currentUser as any).address,
       organizationId: selectedOrg.id,
       organizationName: selectedOrg.name,
-      volunteerId: selectedVolunteer.id,
-      volunteerName: selectedVolunteer.name,
-      status: "volunteer_assigned",
-      distance: `${(Math.random() * 5 + 1).toFixed(1)} km`,
-      estimatedTime: `${Math.floor(Math.random() * 20) + 15} min`,
-      payment: Math.floor(Math.random() * 10) + 5,
+      organizationAddress: selectedOrg.address,
+      volunteerId: selectedVolunteer?.id,
+      volunteerName: selectedVolunteer?.name,
+      volunteerPhone: selectedVolunteer?.phone,
+      status: selectedVolunteer ? "volunteer_assigned" : "pending",
+      distance,
+      estimatedTime,
+      payment,
+      createdAt: new Date().toISOString(),
     };
+
+    // Create notifications
+    const notifications = createDeliveryNotifications(
+      delivery,
+      selectedVolunteer ? "volunteer_assigned" : "created"
+    );
+    notifications.forEach(addNotification);
+
+    toast({
+      title: selectedVolunteer ? "Delivery Created! 🚀" : "Request Posted! 📢",
+      description: selectedVolunteer
+        ? `${selectedVolunteer.name} will pick up your donation.`
+        : "Volunteers will be notified of your donation request.",
+    });
 
     onDeliveryCreated(delivery);
   };
@@ -69,7 +106,38 @@ export const OrganizationMatcher = ({
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-6">
+      {/* Progress Steps */}
+      <div className="max-w-4xl mx-auto px-4 pt-6">
+        <div className="flex items-center gap-2 mb-6">
+          {["Organization", "Volunteer", "Confirm"].map((label, index) => {
+            const stepKeys = ["org", "volunteer", "confirm"];
+            const currentIndex = stepKeys.indexOf(step);
+            const isComplete = index < currentIndex;
+            const isCurrent = index === currentIndex;
+            
+            return (
+              <div key={label} className="flex items-center flex-1">
+                <div className={`flex items-center gap-2 ${index > 0 ? 'flex-1' : ''}`}>
+                  {index > 0 && (
+                    <div className={`flex-1 h-0.5 ${isComplete ? 'bg-primary' : 'bg-muted'}`} />
+                  )}
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                    isComplete ? 'bg-primary text-primary-foreground' :
+                    isCurrent ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                  }`}>
+                    {isComplete ? <CheckCircle className="w-4 h-4" /> : index + 1}
+                  </div>
+                </div>
+                <span className={`ml-2 text-sm hidden sm:inline ${isCurrent ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                  {label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="max-w-4xl mx-auto px-4 pb-6">
         {step === "org" && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -105,14 +173,28 @@ export const OrganizationMatcher = ({
                           <MapPin className="w-3 h-3" />
                           {org.address}
                         </div>
-                        <div className="flex items-center gap-4 mt-2">
+                        <div className="flex items-center gap-4 mt-2 flex-wrap">
                           <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">
                             Verified ✓
                           </span>
                           <span className="text-xs text-muted-foreground">
                             {(Math.random() * 4 + 1).toFixed(1)} km away
                           </span>
+                          {org.needsFood && (
+                            <span className="text-xs bg-warning/10 text-warning px-2 py-1 rounded-full">
+                              Needs Food
+                            </span>
+                          )}
                         </div>
+                        {org.foodNeeds && org.foodNeeds.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {org.foodNeeds.map((need) => (
+                              <span key={need} className="text-xs bg-muted px-2 py-0.5 rounded">
+                                {need}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
@@ -135,26 +217,63 @@ export const OrganizationMatcher = ({
             <div className="bg-card rounded-xl p-4 mb-6 border border-border/50">
               <p className="text-sm text-muted-foreground">Delivering to:</p>
               <p className="font-semibold text-foreground">{selectedOrg.name}</p>
+              <p className="text-sm text-muted-foreground">{selectedOrg.address}</p>
             </div>
 
-            <p className="text-sm text-muted-foreground mb-4">
-              Select a volunteer based on proximity and rating
-            </p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm text-muted-foreground">
+                Select a volunteer or let one claim your request
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSkipVolunteer}
+                className={skipVolunteer ? "border-primary text-primary" : ""}
+              >
+                <Send className="w-4 h-4 mr-2" />
+                Post as Request
+              </Button>
+            </div>
+
+            {skipVolunteer && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-info/10 border border-info/30 rounded-xl p-4 mb-6"
+              >
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-info mt-0.5" />
+                  <div>
+                    <p className="font-medium text-foreground">Post as Open Request</p>
+                    <p className="text-sm text-muted-foreground">
+                      Available volunteers will see your donation request and can claim it. 
+                      You'll be notified when someone accepts.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
 
             <div className="grid gap-4 mb-6">
-              {volunteers.map((vol, index) => (
+              {availableVolunteers.map((vol, index) => (
                 <motion.button
                   key={vol.id}
                   className={`w-full bg-card rounded-xl p-5 shadow-md border-2 text-left transition-all ${
                     selectedVolunteer?.id === vol.id
                       ? "border-primary"
-                      : "border-transparent hover:border-primary/30"
+                      : skipVolunteer 
+                        ? "border-transparent opacity-50" 
+                        : "border-transparent hover:border-primary/30"
                   }`}
-                  onClick={() => handleVolunteerSelect(vol)}
+                  onClick={() => {
+                    setSkipVolunteer(false);
+                    handleVolunteerSelect(vol);
+                  }}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.1 }}
-                  whileHover={{ y: -2 }}
+                  whileHover={!skipVolunteer ? { y: -2 } : {}}
+                  disabled={skipVolunteer}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -179,6 +298,9 @@ export const OrganizationMatcher = ({
                           <span className="text-xs text-muted-foreground">
                             {(Math.random() * 2 + 0.5).toFixed(1)} km away
                           </span>
+                          <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">
+                            Available
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -193,7 +315,7 @@ export const OrganizationMatcher = ({
               ))}
             </div>
 
-            {selectedVolunteer && (
+            {(selectedVolunteer || skipVolunteer) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -205,7 +327,7 @@ export const OrganizationMatcher = ({
                   onClick={confirmDelivery}
                 >
                   <CheckCircle className="w-5 h-5 mr-2" />
-                  Confirm & Start Delivery
+                  {skipVolunteer ? "Post Request" : "Confirm & Start Delivery"}
                 </Button>
               </motion.div>
             )}
