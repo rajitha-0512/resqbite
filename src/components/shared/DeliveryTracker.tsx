@@ -2,10 +2,12 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { 
   ArrowLeft, MapPin, Clock, Phone, CheckCircle, 
-  Package, Truck, Building2, CreditCard
+  Package, Truck, Building2, CreditCard, User
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/appStore";
+import { useToast } from "@/hooks/use-toast";
+import { createDeliveryNotifications } from "@/lib/notifications";
 import type { Delivery } from "@/types";
 
 interface DeliveryTrackerProps {
@@ -15,6 +17,7 @@ interface DeliveryTrackerProps {
 }
 
 const statusSteps = [
+  { key: "pending", label: "Pending Volunteer", icon: Clock },
   { key: "volunteer_assigned", label: "Volunteer Assigned", icon: Truck },
   { key: "picked_up", label: "Picked Up", icon: Package },
   { key: "in_transit", label: "In Transit", icon: MapPin },
@@ -22,12 +25,29 @@ const statusSteps = [
 ];
 
 export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerProps) => {
-  const { updateDelivery, updateVolunteerEarnings } = useAppStore();
-  const [currentStatus, setCurrentStatus] = useState(delivery.status);
-  const [showPayment, setShowPayment] = useState(false);
+  const { updateDelivery, updateVolunteerEarnings, addNotification, deliveries } = useAppStore();
+  const { toast } = useToast();
+  
+  // Get the latest delivery state from store
+  const currentDelivery = deliveries.find(d => d.id === delivery.id) || delivery;
+  const [currentStatus, setCurrentStatus] = useState(currentDelivery.status);
+  const [showPayment, setShowPayment] = useState(currentDelivery.status === "delivered");
   const [location, setLocation] = useState({ lat: 0, progress: 0 });
 
-  const currentStepIndex = statusSteps.findIndex(s => s.key === currentStatus);
+  // Update local state when store changes
+  useEffect(() => {
+    setCurrentStatus(currentDelivery.status);
+    if (currentDelivery.status === "delivered") {
+      setShowPayment(true);
+    }
+  }, [currentDelivery.status]);
+
+  // Filter out "pending" step if delivery already has volunteer
+  const activeSteps = currentDelivery.volunteerId 
+    ? statusSteps.filter(s => s.key !== "pending")
+    : statusSteps;
+
+  const currentStepIndex = activeSteps.findIndex(s => s.key === currentStatus);
 
   useEffect(() => {
     // Simulate live location updates
@@ -44,16 +64,32 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
 
   const advanceStatus = () => {
     const nextIndex = currentStepIndex + 1;
-    if (nextIndex < statusSteps.length) {
-      const nextStatus = statusSteps[nextIndex].key as Delivery["status"];
+    if (nextIndex < activeSteps.length) {
+      const nextStatus = activeSteps[nextIndex].key as Delivery["status"];
       setCurrentStatus(nextStatus);
       updateDelivery(delivery.id, { status: nextStatus });
       
+      // Create notifications for status change
+      if (nextStatus === "picked_up") {
+        const notifs = createDeliveryNotifications(currentDelivery, "picked_up");
+        notifs.forEach(addNotification);
+        toast({
+          title: "Food Picked Up! 📦",
+          description: "You've picked up the donation. Safe travels!",
+        });
+      }
+      
       if (nextStatus === "delivered") {
         setShowPayment(true);
-        if (delivery.volunteerId && delivery.payment) {
-          updateVolunteerEarnings(delivery.volunteerId, delivery.payment);
+        if (currentDelivery.volunteerId && currentDelivery.payment) {
+          updateVolunteerEarnings(currentDelivery.volunteerId, currentDelivery.payment);
         }
+        const notifs = createDeliveryNotifications(currentDelivery, "delivered");
+        notifs.forEach(addNotification);
+        toast({
+          title: "Delivery Complete! 🎉",
+          description: `You earned $${currentDelivery.payment}!`,
+        });
       }
     }
   };
@@ -71,7 +107,7 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
             Delivery Tracking
           </h1>
           <p className="text-muted-foreground">
-            {delivery.foodItem?.name || "Food Delivery"} • {delivery.distance}
+            {currentDelivery.foodItem?.name || "Food Delivery"} • {currentDelivery.distance || "Calculating..."}
           </p>
         </div>
       </div>
@@ -100,9 +136,11 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
                   <Truck className="w-8 h-8 text-primary-foreground" />
                 </motion.div>
                 <p className="mt-3 text-sm text-muted-foreground">
-                  {currentStatus === "in_transit" 
-                    ? "Live tracking active..." 
-                    : "Waiting for pickup..."}
+                  {currentStatus === "pending" && "Waiting for a volunteer..."}
+                  {currentStatus === "volunteer_assigned" && "Volunteer on the way to pickup"}
+                  {currentStatus === "picked_up" && "Ready to start delivery"}
+                  {currentStatus === "in_transit" && "Live tracking active..."}
+                  {currentStatus === "delivered" && "Delivery complete! 🎉"}
                 </p>
               </div>
             </div>
@@ -121,8 +159,8 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
                 <div className="w-3 h-3 bg-accent rounded-full" />
               </div>
               <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-                <span>Restaurant</span>
-                <span>{delivery.organizationName}</span>
+                <span>{currentDelivery.restaurantName || currentDelivery.foodItem?.restaurantName}</span>
+                <span>{currentDelivery.organizationName}</span>
               </div>
             </div>
           </div>
@@ -132,7 +170,7 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
         <div className="bg-card rounded-2xl p-6 shadow-lg mb-6 border border-border/50">
           <h3 className="font-bold text-foreground mb-4">Delivery Status</h3>
           <div className="space-y-4">
-            {statusSteps.map((step, index) => {
+            {activeSteps.map((step, index) => {
               const isComplete = index <= currentStepIndex;
               const isCurrent = index === currentStepIndex;
               return (
@@ -160,7 +198,7 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
                       <p className="text-xs text-primary">Current status</p>
                     )}
                   </div>
-                  {isComplete && (
+                  {isComplete && index < currentStepIndex && (
                     <CheckCircle className="w-5 h-5 text-success" />
                   )}
                 </motion.div>
@@ -169,15 +207,15 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
           </div>
 
           {/* Action Button (for volunteers) */}
-          {userRole === "volunteer" && currentStatus !== "delivered" && (
+          {userRole === "volunteer" && currentStatus !== "delivered" && currentStatus !== "pending" && (
             <Button
               variant="hero"
               className="w-full mt-6"
               onClick={advanceStatus}
             >
-              {currentStepIndex === 0 && "Mark as Picked Up"}
-              {currentStepIndex === 1 && "Start Delivery"}
-              {currentStepIndex === 2 && "Mark as Delivered"}
+              {currentStatus === "volunteer_assigned" && "Mark as Picked Up"}
+              {currentStatus === "picked_up" && "Start Delivery"}
+              {currentStatus === "in_transit" && "Mark as Delivered"}
             </Button>
           )}
         </div>
@@ -191,26 +229,46 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
                 <Building2 className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Destination</p>
-                <p className="font-medium text-foreground">{delivery.organizationName}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-info/10 rounded-lg flex items-center justify-center">
-                <Truck className="w-5 h-5 text-info" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Volunteer</p>
-                <p className="font-medium text-foreground">{delivery.volunteerName}</p>
+                <p className="text-sm text-muted-foreground">Pickup From</p>
+                <p className="font-medium text-foreground">
+                  {currentDelivery.restaurantName || currentDelivery.foodItem?.restaurantName}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {currentDelivery.restaurantAddress || currentDelivery.foodItem?.restaurantAddress}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-accent/10 rounded-lg flex items-center justify-center">
-                <Clock className="w-5 h-5 text-accent" />
+                <MapPin className="w-5 h-5 text-accent" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Deliver To</p>
+                <p className="font-medium text-foreground">{currentDelivery.organizationName}</p>
+                <p className="text-xs text-muted-foreground">{currentDelivery.organizationAddress}</p>
+              </div>
+            </div>
+            {currentDelivery.volunteerName && (
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-info/10 rounded-lg flex items-center justify-center">
+                  <User className="w-5 h-5 text-info" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Volunteer</p>
+                  <p className="font-medium text-foreground">{currentDelivery.volunteerName}</p>
+                  {currentDelivery.volunteerPhone && (
+                    <p className="text-xs text-muted-foreground">{currentDelivery.volunteerPhone}</p>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-warning/10 rounded-lg flex items-center justify-center">
+                <Clock className="w-5 h-5 text-warning" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Estimated Time</p>
-                <p className="font-medium text-foreground">{delivery.estimatedTime}</p>
+                <p className="font-medium text-foreground">{currentDelivery.estimatedTime || "Calculating..."}</p>
               </div>
             </div>
           </div>
@@ -228,9 +286,14 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
                 <CreditCard className="w-7 h-7 text-success-foreground" />
               </div>
               <div>
-                <h3 className="font-bold text-success text-lg">Payment Confirmed!</h3>
+                <h3 className="font-bold text-success text-lg">
+                  {userRole === "volunteer" ? "Payment Earned!" : "Delivery Complete!"}
+                </h3>
                 <p className="text-success/80">
-                  ${delivery.payment} has been processed successfully
+                  {userRole === "volunteer" 
+                    ? `$${currentDelivery.payment} has been added to your earnings`
+                    : `Food has been successfully delivered to ${currentDelivery.organizationName}`
+                  }
                 </p>
               </div>
             </div>
