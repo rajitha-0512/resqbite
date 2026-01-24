@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Building2, Mail, Phone, MapPin, Lock, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Building2, Mail, Phone, MapPin, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/Logo";
-import { useAppStore } from "@/store/appStore";
-import type { Restaurant } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 interface RestaurantAuthProps {
   onBack: () => void;
@@ -16,6 +16,7 @@ interface RestaurantAuthProps {
 export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
   const [isLogin, setIsLogin] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -23,23 +24,35 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
     address: "",
     password: "",
   });
-  const { setCurrentUser } = useAppStore();
+  const { signUp, signIn } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const user: Restaurant = {
-      id: `rest-${Date.now()}`,
-      name: formData.name || "Restaurant User",
-      email: formData.email,
-      phone: formData.phone,
-      role: "restaurant",
-      address: formData.address,
-      location: formData.address,
-    };
-    
-    setCurrentUser(user);
-    onSuccess();
+    setIsLoading(true);
+
+    try {
+      if (isLogin) {
+        await signIn(formData.email, formData.password);
+        toast.success("Welcome back!");
+      } else {
+        await signUp({
+          email: formData.email,
+          password: formData.password,
+          name: formData.name,
+          phone: formData.phone,
+          address: formData.address,
+          location: formData.address,
+          role: "restaurant",
+        });
+        toast.success("Account created successfully!");
+      }
+      onSuccess();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Authentication failed";
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -50,7 +63,7 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
           animate={{ opacity: 1, x: 0 }}
           className="mb-6"
         >
-          <Button variant="ghost" onClick={onBack} className="gap-2">
+          <Button variant="ghost" onClick={onBack} className="gap-2" disabled={isLoading}>
             <ArrowLeft className="w-4 h-4" />
             Back
           </Button>
@@ -91,6 +104,7 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
+                    disabled={isLoading}
                   />
                 </div>
               </div>
@@ -108,6 +122,7 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -126,6 +141,7 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
                       value={formData.phone}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                       required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
@@ -141,6 +157,7 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
                       value={formData.address}
                       onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                       required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
@@ -159,19 +176,29 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   required
+                  minLength={6}
+                  disabled={isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  disabled={isLoading}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <Button type="submit" variant="hero" className="w-full" size="lg">
-              {isLogin ? "Sign In" : "Create Account"}
+            <Button type="submit" variant="hero" className="w-full" size="lg" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {isLogin ? "Signing In..." : "Creating Account..."}
+                </>
+              ) : (
+                isLogin ? "Sign In" : "Create Account"
+              )}
             </Button>
           </form>
 
@@ -180,6 +207,7 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
               type="button"
               onClick={() => setIsLogin(!isLogin)}
               className="text-sm text-primary hover:underline"
+              disabled={isLoading}
             >
               {isLogin
                 ? "Don't have an account? Register"
