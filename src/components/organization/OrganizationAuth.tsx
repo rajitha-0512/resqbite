@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Heart, Mail, Phone, MapPin, Lock, Eye, EyeOff, FileCheck } from "lucide-react";
+import { ArrowLeft, Heart, Mail, Phone, MapPin, Lock, Eye, EyeOff, FileCheck, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/Logo";
-import { useAppStore } from "@/store/appStore";
-import type { Organization } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 interface OrganizationAuthProps {
   onBack: () => void;
@@ -16,36 +16,44 @@ interface OrganizationAuthProps {
 export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) => {
   const [isLogin, setIsLogin] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     phone: "",
     address: "",
     password: "",
-    organizationType: "shelter" as Organization["organizationType"],
+    organizationType: "shelter" as "shelter" | "food_bank" | "community_kitchen" | "other",
   });
-  const { setCurrentUser, addOrganization } = useAppStore();
+  const { signUp, signIn } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const org: Organization = {
-      id: `org-${Date.now()}`,
-      name: formData.name || "Organization User",
-      email: formData.email,
-      phone: formData.phone,
-      role: "organization",
-      address: formData.address,
-      location: formData.address,
-      documentVerified: true,
-      organizationType: formData.organizationType,
-    };
-    
-    if (!isLogin) {
-      addOrganization(org);
+    setIsLoading(true);
+
+    try {
+      if (isLogin) {
+        await signIn(formData.email, formData.password);
+        toast.success("Welcome back!");
+      } else {
+        await signUp({
+          email: formData.email,
+          password: formData.password,
+          name: formData.name,
+          phone: formData.phone,
+          address: formData.address,
+          role: "organization",
+          organizationType: formData.organizationType,
+        });
+        toast.success("Account created successfully!");
+      }
+      onSuccess();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Authentication failed";
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
     }
-    setCurrentUser(org);
-    onSuccess();
   };
 
   return (
@@ -56,7 +64,7 @@ export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) =
           animate={{ opacity: 1, x: 0 }}
           className="mb-6"
         >
-          <Button variant="ghost" onClick={onBack} className="gap-2">
+          <Button variant="ghost" onClick={onBack} className="gap-2" disabled={isLoading}>
             <ArrowLeft className="w-4 h-4" />
             Back
           </Button>
@@ -98,6 +106,7 @@ export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) =
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
@@ -108,7 +117,8 @@ export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) =
                     id="type"
                     className="w-full h-11 px-3 rounded-lg border border-input bg-background text-sm"
                     value={formData.organizationType}
-                    onChange={(e) => setFormData({ ...formData, organizationType: e.target.value as Organization["organizationType"] })}
+                    onChange={(e) => setFormData({ ...formData, organizationType: e.target.value as typeof formData.organizationType })}
+                    disabled={isLoading}
                   >
                     <option value="shelter">Shelter</option>
                     <option value="food_bank">Food Bank</option>
@@ -131,6 +141,7 @@ export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) =
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -149,6 +160,7 @@ export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) =
                       value={formData.phone}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                       required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
@@ -164,6 +176,7 @@ export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) =
                       value={formData.address}
                       onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                       required
+                      disabled={isLoading}
                     />
                   </div>
                 </div>
@@ -189,19 +202,29 @@ export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) =
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   required
+                  minLength={6}
+                  disabled={isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  disabled={isLoading}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <Button type="submit" variant="accent" className="w-full" size="lg">
-              {isLogin ? "Sign In" : "Create Account"}
+            <Button type="submit" variant="accent" className="w-full" size="lg" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {isLogin ? "Signing In..." : "Creating Account..."}
+                </>
+              ) : (
+                isLogin ? "Sign In" : "Create Account"
+              )}
             </Button>
           </form>
 
@@ -210,6 +233,7 @@ export const OrganizationAuth = ({ onBack, onSuccess }: OrganizationAuthProps) =
               type="button"
               onClick={() => setIsLogin(!isLogin)}
               className="text-sm text-primary hover:underline"
+              disabled={isLoading}
             >
               {isLogin
                 ? "Don't have an account? Register"
