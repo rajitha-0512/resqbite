@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Plus, X, AlertCircle, CheckCircle } from "lucide-react";
+import { ArrowLeft, Plus, CheckCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/store/appStore";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import type { FoodRequest, Organization } from "@/types";
 
 interface FoodRequestFormProps {
@@ -34,16 +35,15 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
   const [quantity, setQuantity] = useState("");
   const [urgency, setUrgency] = useState<"low" | "medium" | "high">("medium");
   const [notes, setNotes] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   const toggleFoodType = (type: string) => {
     setSelectedFoodTypes((prev) =>
-      prev.includes(type)
-        ? prev.filter((t) => t !== type)
-        : [...prev, type]
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (selectedFoodTypes.length === 0) {
@@ -55,58 +55,100 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
       return;
     }
 
-    const request: FoodRequest = {
-      id: `req-${Date.now()}`,
-      organizationId: org.id,
-      organizationName: org.name,
-      organizationAddress: org.address,
-      foodTypes: selectedFoodTypes,
-      quantity: quantity || "Any amount welcome",
-      urgency,
-      notes: notes || undefined,
-      status: "active",
-      createdAt: new Date().toISOString(),
-    };
+    setIsSaving(true);
 
-    addFoodRequest(request);
+    try {
+      // Get organization record for current user
+      const { data: organization, error: orgError } = await supabase
+        .from("organizations")
+        .select("id, name, address")
+        .eq("user_id", currentUser?.id)
+        .single();
 
-    toast({
-      title: "Request Posted! 📢",
-      description: "Restaurants will be notified of your food needs.",
-    });
+      if (orgError || !organization) {
+        toast({
+          title: "Error",
+          description: "Could not find organization record",
+          variant: "destructive",
+        });
+        return;
+      }
 
-    onSuccess();
+      // Insert food request into database
+      const { data: requestData, error: insertError } = await supabase
+        .from("food_requests")
+        .insert({
+          organization_id: organization.id,
+          food_type: selectedFoodTypes.join(", "),
+          quantity: quantity || "Any amount welcome",
+          urgency,
+          notes: notes || null,
+          status: "active",
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        toast({
+          title: "Error",
+          description: "Failed to post request: " + insertError.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Also add to local store for immediate UI update
+      const request: FoodRequest = {
+        id: requestData.id,
+        organizationId: organization.id,
+        organizationName: organization.name,
+        organizationAddress: organization.address || "",
+        foodTypes: selectedFoodTypes,
+        quantity: quantity || "Any amount welcome",
+        urgency,
+        notes: notes || undefined,
+        status: "active",
+        createdAt: requestData.created_at,
+      };
+
+      addFoodRequest(request);
+
+      toast({
+        title: "Request Posted! 📢",
+        description: "Restaurants will be notified of your food needs.",
+      });
+
+      onSuccess();
+    } catch (err) {
+      console.error("Save failed:", err);
+      toast({
+        title: "Error",
+        description: "Failed to post request",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-gradient-hero">
-      {/* Header */}
       <div className="bg-card border-b border-border shadow-sm">
         <div className="max-w-2xl mx-auto px-4 py-4">
           <Button variant="ghost" onClick={onBack} className="gap-2 mb-4">
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Button>
-          <h1 className="text-xl font-bold text-foreground">
-            Request Food Donation
-          </h1>
-          <p className="text-muted-foreground">
-            Let restaurants know what food your organization needs
-          </p>
+          <h1 className="text-xl font-bold text-foreground">Request Food Donation</h1>
+          <p className="text-muted-foreground">Let restaurants know what food your organization needs</p>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6">
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Food Types */}
-          <motion.div
-            className="bg-card rounded-xl p-6 shadow-md border border-border/50"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <Label className="text-base font-semibold mb-4 block">
-              What types of food do you need?
-            </Label>
+          <motion.div className="bg-card rounded-xl p-6 shadow-md border border-border/50" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <Label className="text-base font-semibold mb-4 block">What types of food do you need?</Label>
             <div className="flex flex-wrap gap-2">
               {foodTypeOptions.map((type) => {
                 const isSelected = selectedFoodTypes.includes(type);
@@ -116,9 +158,7 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
                     type="button"
                     onClick={() => toggleFoodType(type)}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                      isSelected
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
                     }`}
                   >
                     {isSelected && <CheckCircle className="w-3 h-3 inline mr-1" />}
@@ -129,34 +169,13 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
             </div>
           </motion.div>
 
-          {/* Quantity */}
-          <motion.div
-            className="bg-card rounded-xl p-6 shadow-md border border-border/50"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-          >
-            <Label htmlFor="quantity" className="text-base font-semibold mb-4 block">
-              Quantity needed
-            </Label>
-            <Input
-              id="quantity"
-              placeholder="e.g., 50 servings, 20 kg, Any amount welcome"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-            />
+          <motion.div className="bg-card rounded-xl p-6 shadow-md border border-border/50" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+            <Label htmlFor="quantity" className="text-base font-semibold mb-4 block">Quantity needed</Label>
+            <Input id="quantity" placeholder="e.g., 50 servings, 20 kg, Any amount welcome" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </motion.div>
 
-          {/* Urgency */}
-          <motion.div
-            className="bg-card rounded-xl p-6 shadow-md border border-border/50"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <Label className="text-base font-semibold mb-4 block">
-              How urgent is this request?
-            </Label>
+          <motion.div className="bg-card rounded-xl p-6 shadow-md border border-border/50" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <Label className="text-base font-semibold mb-4 block">How urgent is this request?</Label>
             <div className="grid grid-cols-3 gap-3">
               {[
                 { value: "low", label: "Low", color: "bg-muted" },
@@ -168,9 +187,7 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
                   type="button"
                   onClick={() => setUrgency(option.value as typeof urgency)}
                   className={`p-3 rounded-lg text-sm font-medium border-2 transition-all ${
-                    urgency === option.value
-                      ? "border-primary bg-primary/10 text-primary"
-                      : `border-transparent ${option.color}`
+                    urgency === option.value ? "border-primary bg-primary/10 text-primary" : `border-transparent ${option.color}`
                   }`}
                 >
                   {option.label}
@@ -179,40 +196,15 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
             </div>
           </motion.div>
 
-          {/* Notes */}
-          <motion.div
-            className="bg-card rounded-xl p-6 shadow-md border border-border/50"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-          >
-            <Label htmlFor="notes" className="text-base font-semibold mb-4 block">
-              Additional notes (optional)
-            </Label>
-            <Textarea
-              id="notes"
-              placeholder="Any specific requirements or information for donors..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-            />
+          <motion.div className="bg-card rounded-xl p-6 shadow-md border border-border/50" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+            <Label htmlFor="notes" className="text-base font-semibold mb-4 block">Additional notes (optional)</Label>
+            <Textarea id="notes" placeholder="Any specific requirements or information for donors..." value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
           </motion.div>
 
-          {/* Submit */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-          >
-            <Button
-              type="submit"
-              variant="hero"
-              size="lg"
-              className="w-full"
-              disabled={selectedFoodTypes.length === 0}
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              Post Request
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+            <Button type="submit" variant="hero" size="lg" className="w-full" disabled={selectedFoodTypes.length === 0 || isSaving}>
+              {isSaving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Plus className="w-5 h-5 mr-2" />}
+              {isSaving ? "Posting..." : "Post Request"}
             </Button>
           </motion.div>
         </form>

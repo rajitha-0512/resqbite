@@ -2,15 +2,16 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Package, Truck, MapPin, Clock, ChevronRight,
-  LogOut, CheckCircle, Users, DollarSign
+  LogOut, CheckCircle, Users, DollarSign, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { FoodUpload } from "./FoodUpload";
 import { OrganizationMatcher } from "./OrganizationMatcher";
 import { DeliveryTracker } from "../shared/DeliveryTracker";
-import { useAppStore } from "@/store/appStore";
-import type { FoodItem, Delivery } from "@/types";
+import { useRestaurantData, FoodItemRecord } from "@/hooks/useRestaurantData";
+import { useDeliveryData, DeliveryRecord } from "@/hooks/useDeliveryData";
+import { useAuth } from "@/hooks/useAuth";
 
 interface RestaurantDashboardProps {
   onLogout: () => void;
@@ -19,29 +20,32 @@ interface RestaurantDashboardProps {
 type View = "dashboard" | "upload" | "match" | "tracking";
 
 export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
-  const { currentUser, foodItems, deliveries, addFoodItem, addDelivery, updateFoodItem } = useAppStore();
+  const { user } = useAuth();
+  const { restaurant, foodItems, foodItemsLoading, updateFoodItem } = useRestaurantData();
+  const { deliveries, deliveriesLoading, createDelivery } = useDeliveryData("restaurant");
   const [view, setView] = useState<View>("dashboard");
-  const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
-  const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
+  const [selectedFood, setSelectedFood] = useState<FoodItemRecord | null>(null);
+  const [selectedDelivery, setSelectedDelivery] = useState<DeliveryRecord | null>(null);
 
-  const myFoodItems = foodItems.filter(item => item.restaurantId === currentUser?.id);
-  const myDeliveries = deliveries.filter(d => d.restaurantId === currentUser?.id);
-  const pendingItems = myFoodItems.filter(item => item.status === "pending");
-  const activeDeliveries = myDeliveries.filter(d => d.status !== "delivered");
-  const completedDeliveries = myDeliveries.filter(d => d.status === "delivered");
+  const pendingItems = foodItems.filter(item => item.status === "available");
+  const activeDeliveries = deliveries.filter(d => d.status !== "delivered");
+  const completedDeliveries = deliveries.filter(d => d.status === "delivered");
 
-  const handleFoodUploadSuccess = (item: FoodItem) => {
-    addFoodItem(item);
+  const handleFoodUploadSuccess = (item: FoodItemRecord) => {
     setSelectedFood(item);
     setView("match");
   };
 
-  const handleDeliveryCreated = (delivery: Delivery) => {
-    addDelivery(delivery);
-    updateFoodItem(delivery.foodItemId, { status: "matched" });
+  const handleDeliveryCreated = async (delivery: DeliveryRecord) => {
+    // Update food item status if there's one attached
+    if (delivery.food_item_id) {
+      await updateFoodItem.mutateAsync({ id: delivery.food_item_id, status: "matched" });
+    }
     setSelectedDelivery(delivery);
     setView("tracking");
   };
+
+  const isLoading = foodItemsLoading || deliveriesLoading;
 
   return (
     <div className="min-h-screen bg-gradient-hero">
@@ -51,7 +55,7 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
           <Logo size="sm" />
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">
-              {currentUser?.name}
+              {restaurant?.name || user?.email}
             </span>
             <Button variant="ghost" size="sm" onClick={onLogout}>
               <LogOut className="w-4 h-4" />
@@ -73,12 +77,18 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
               {/* Welcome */}
               <div className="mb-8">
                 <h1 className="text-2xl font-bold text-foreground">
-                  Welcome, {currentUser?.name?.split(' ')[0]}! 👋
+                  Welcome, {restaurant?.name?.split(' ')[0] || 'Restaurant'}! 👋
                 </h1>
                 <p className="text-muted-foreground">
                   Ready to donate surplus food and make a difference?
                 </p>
               </div>
+
+              {isLoading && (
+                <div className="flex justify-center items-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              )}
 
               {/* Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -144,10 +154,10 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                           </div>
                           <div>
                             <h4 className="font-semibold text-foreground">
-                              {delivery.foodItem?.name || "Food Delivery"}
+                              {delivery.food_item?.name || "Food Delivery"}
                             </h4>
                             <p className="text-sm text-muted-foreground">
-                              To: {delivery.organizationName}
+                              To: {delivery.organization?.name}
                             </p>
                           </div>
                         </div>
@@ -177,9 +187,9 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                         className="bg-card rounded-xl overflow-hidden shadow-md border border-border/50"
                         whileHover={{ y: -2 }}
                       >
-                        {item.imageUrl && (
+                        {item.image_url && (
                           <img
-                            src={item.imageUrl}
+                            src={item.image_url}
                             alt={item.name}
                             className="w-full h-32 object-cover"
                           />
@@ -187,12 +197,12 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                         <div className="p-4">
                           <h4 className="font-semibold text-foreground">{item.name}</h4>
                           <p className="text-sm text-muted-foreground mb-3">
-                            {item.quantity} {item.unit}
+                            {item.quantity}
                           </p>
-                          {item.qualityAnalysis && (
+                          {item.quality_score && (
                             <div className="flex items-center gap-2 mb-3">
                               <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">
-                                Quality: {item.qualityAnalysis.overallScore}%
+                                Quality: {item.quality_score}%
                               </span>
                             </div>
                           )}
