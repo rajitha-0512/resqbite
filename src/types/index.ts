@@ -49,11 +49,26 @@ export interface FoodItem {
   createdAt: string;
 }
 
+export interface QualityAspect {
+  score: number;
+  comment: string;
+}
+
 export interface QualityAnalysis {
+  isFood: boolean;
+  message?: string;
   overallScore: number;
-  freshness: { score: number; details: string };
-  packaging: { score: number; details: string };
-  hygiene: { score: number; details: string };
+  qualityRating: "Excellent" | "Good" | "Fair" | "Poor";
+  aspects: {
+    presentation: QualityAspect;
+    freshness: QualityAspect;
+    color: QualityAspect;
+    texture: QualityAspect;
+    plating: QualityAspect;
+  };
+  positivePoints: string[];
+  improvements: string[];
+  summary: string;
   recommendation: string;
 }
 
