@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, MapPin, Clock, Star, CheckCircle, Truck, Send, AlertCircle } from "lucide-react";
+import { ArrowLeft, MapPin, Clock, Star, CheckCircle, Truck, Send, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAppStore } from "@/store/appStore";
 import { useToast } from "@/hooks/use-toast";
-import { createDeliveryNotifications } from "@/lib/notifications";
-import type { FoodItem, Delivery, Organization, Volunteer } from "@/types";
+import { useCrossRoleData, PublicOrganization, PublicVolunteer } from "@/hooks/useCrossRoleData";
+import { useRestaurantData, FoodItemRecord } from "@/hooks/useRestaurantData";
+import { useDeliveryData, DeliveryRecord } from "@/hooks/useDeliveryData";
 
 interface OrganizationMatcherProps {
-  foodItem: FoodItem;
+  foodItem: FoodItemRecord;
   onBack: () => void;
-  onDeliveryCreated: (delivery: Delivery) => void;
+  onDeliveryCreated: (delivery: DeliveryRecord) => void;
 }
 
 export const OrganizationMatcher = ({
@@ -18,21 +18,24 @@ export const OrganizationMatcher = ({
   onBack,
   onDeliveryCreated,
 }: OrganizationMatcherProps) => {
-  const { organizations, volunteers, currentUser, addNotification } = useAppStore();
+  const { organizations, volunteers, organizationsLoading, volunteersLoading } = useCrossRoleData();
+  const { restaurant } = useRestaurantData();
+  const { createDelivery } = useDeliveryData("restaurant");
   const { toast } = useToast();
   const [step, setStep] = useState<"org" | "volunteer" | "confirm">("org");
-  const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
-  const [selectedVolunteer, setSelectedVolunteer] = useState<Volunteer | null>(null);
+  const [selectedOrg, setSelectedOrg] = useState<PublicOrganization | null>(null);
+  const [selectedVolunteer, setSelectedVolunteer] = useState<PublicVolunteer | null>(null);
   const [skipVolunteer, setSkipVolunteer] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const availableVolunteers = volunteers.filter(v => v.isAvailable !== false);
+  const availableVolunteers = volunteers.filter(v => v.is_available !== false);
 
-  const handleOrgSelect = (org: Organization) => {
+  const handleOrgSelect = (org: PublicOrganization) => {
     setSelectedOrg(org);
     setStep("volunteer");
   };
 
-  const handleVolunteerSelect = (volunteer: Volunteer) => {
+  const handleVolunteerSelect = (volunteer: PublicVolunteer) => {
     setSelectedVolunteer(volunteer);
   };
 
@@ -41,52 +44,40 @@ export const OrganizationMatcher = ({
     setSelectedVolunteer(null);
   };
 
-  const confirmDelivery = () => {
-    if (!selectedOrg || !currentUser) return;
+  const confirmDelivery = async () => {
+    if (!selectedOrg || !restaurant) return;
 
-    const payment = Math.floor(Math.random() * 10) + 5;
-    const distance = `${(Math.random() * 5 + 1).toFixed(1)} km`;
-    const estimatedTime = `${Math.floor(Math.random() * 20) + 15} min`;
+    setIsSubmitting(true);
+    
+    try {
+      const delivery = await createDelivery.mutateAsync({
+        food_item_id: foodItem.id,
+        restaurant_id: restaurant.id,
+        organization_id: selectedOrg.id,
+        volunteer_id: selectedVolunteer?.id,
+      });
 
-    const delivery: Delivery = {
-      id: `del-${Date.now()}`,
-      foodItemId: foodItem.id,
-      foodItem: {
-        ...foodItem,
-        restaurantAddress: currentUser.location || (currentUser as any).address,
-      },
-      restaurantId: currentUser.id,
-      restaurantName: currentUser.name,
-      restaurantAddress: currentUser.location || (currentUser as any).address,
-      organizationId: selectedOrg.id,
-      organizationName: selectedOrg.name,
-      organizationAddress: selectedOrg.address,
-      volunteerId: selectedVolunteer?.id,
-      volunteerName: selectedVolunteer?.name,
-      volunteerPhone: selectedVolunteer?.phone,
-      status: selectedVolunteer ? "volunteer_assigned" : "pending",
-      distance,
-      estimatedTime,
-      payment,
-      createdAt: new Date().toISOString(),
-    };
+      toast({
+        title: selectedVolunteer ? "Delivery Created! 🚀" : "Request Posted! 📢",
+        description: selectedVolunteer
+          ? `${selectedVolunteer.name} will pick up your donation.`
+          : "Volunteers will be notified of your donation request.",
+      });
 
-    // Create notifications
-    const notifications = createDeliveryNotifications(
-      delivery,
-      selectedVolunteer ? "volunteer_assigned" : "created"
-    );
-    notifications.forEach(addNotification);
-
-    toast({
-      title: selectedVolunteer ? "Delivery Created! 🚀" : "Request Posted! 📢",
-      description: selectedVolunteer
-        ? `${selectedVolunteer.name} will pick up your donation.`
-        : "Volunteers will be notified of your donation request.",
-    });
-
-    onDeliveryCreated(delivery);
+      onDeliveryCreated(delivery);
+    } catch (error) {
+      console.error("Failed to create delivery:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create delivery. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  const isLoading = organizationsLoading || volunteersLoading;
 
   return (
     <div className="min-h-screen bg-gradient-hero">
