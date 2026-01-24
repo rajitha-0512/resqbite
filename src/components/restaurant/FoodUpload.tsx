@@ -1,14 +1,16 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Plus, Upload, Camera, Clock, Package, Loader2, 
-  CheckCircle, AlertTriangle, XCircle, Sparkles
+  Camera, Loader2, CheckCircle, AlertTriangle, XCircle, 
+  Sparkles, ThumbsUp, Lightbulb, ChefHat
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/store/appStore";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import type { FoodItem, QualityAnalysis } from "@/types";
 
 interface FoodUploadProps {
@@ -18,9 +20,11 @@ interface FoodUploadProps {
 
 export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
   const { currentUser } = useAppStore();
-  const [step, setStep] = useState<"form" | "analyzing" | "result">("form");
+  const [step, setStep] = useState<"form" | "analyzing" | "result" | "not_food">("form");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [qualityAnalysis, setQualityAnalysis] = useState<QualityAnalysis | null>(null);
+  const [notFoodMessage, setNotFoodMessage] = useState<string>("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [formData, setFormData] = useState({
@@ -35,6 +39,12 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Check file size (max 4MB for base64)
+      if (file.size > 4 * 1024 * 1024) {
+        toast.error("Image too large. Please use an image under 4MB.");
+        return;
+      }
+      
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -44,35 +54,56 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
   };
 
   const analyzeFood = async () => {
+    if (!imagePreview) return;
+    
     setStep("analyzing");
+    setIsAnalyzing(true);
     
-    // Simulate AI analysis with OpenCV-like scoring
-    await new Promise(resolve => setTimeout(resolve, 2500));
-    
-    const analysis: QualityAnalysis = {
-      overallScore: Math.floor(Math.random() * 20) + 80,
-      freshness: {
-        score: Math.floor(Math.random() * 15) + 85,
-        details: "Food appears fresh with vibrant colors and no visible signs of spoilage",
-      },
-      packaging: {
-        score: Math.floor(Math.random() * 20) + 75,
-        details: "Properly sealed containers maintaining food temperature and preventing contamination",
-      },
-      hygiene: {
-        score: Math.floor(Math.random() * 15) + 80,
-        details: "Clean preparation environment detected, following food safety standards",
-      },
-      recommendation: "✅ Approved for donation. Food meets quality standards for safe consumption.",
-    };
-    
-    setQualityAnalysis(analysis);
-    setStep("result");
+    try {
+      const { data, error } = await supabase.functions.invoke("analyze-food", {
+        body: { imageBase64: imagePreview },
+      });
+
+      if (error) {
+        console.error("Analysis error:", error);
+        toast.error("Failed to analyze food. Please try again.");
+        setStep("form");
+        return;
+      }
+
+      if (data.error) {
+        toast.error(data.error);
+        setStep("form");
+        return;
+      }
+
+      // Check if it's not food
+      if (data.isFood === false) {
+        setNotFoodMessage(data.message || "This doesn't appear to be food. Please upload a food image.");
+        setStep("not_food");
+        return;
+      }
+
+      setQualityAnalysis(data as QualityAnalysis);
+      setStep("result");
+    } catch (err) {
+      console.error("Analysis failed:", err);
+      toast.error("Analysis failed. Please try again.");
+      setStep("form");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     analyzeFood();
+  };
+
+  const retryWithNewImage = () => {
+    setImagePreview(null);
+    setNotFoodMessage("");
+    setStep("form");
   };
 
   const confirmDonation = () => {
@@ -103,10 +134,28 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
     return "text-destructive";
   };
 
-  const getScoreIcon = (score: number) => {
-    if (score >= 85) return CheckCircle;
-    if (score >= 70) return AlertTriangle;
-    return XCircle;
+  const getScoreBgColor = (score: number) => {
+    if (score >= 85) return "bg-success";
+    if (score >= 70) return "bg-warning";
+    return "bg-destructive";
+  };
+
+  const getRatingColor = (rating: string) => {
+    switch (rating) {
+      case "Excellent": return "text-success bg-success/10 border-success/30";
+      case "Good": return "text-primary bg-primary/10 border-primary/30";
+      case "Fair": return "text-warning bg-warning/10 border-warning/30";
+      case "Poor": return "text-destructive bg-destructive/10 border-destructive/30";
+      default: return "text-muted-foreground bg-muted";
+    }
+  };
+
+  const aspectLabels: Record<string, { label: string; icon: React.ReactNode }> = {
+    presentation: { label: "Presentation", icon: <ChefHat className="w-4 h-4" /> },
+    freshness: { label: "Freshness", icon: <Sparkles className="w-4 h-4" /> },
+    color: { label: "Color", icon: <span className="w-4 h-4 text-center">🎨</span> },
+    texture: { label: "Texture", icon: <span className="w-4 h-4 text-center">✨</span> },
+    plating: { label: "Plating", icon: <span className="w-4 h-4 text-center">🍽️</span> },
   };
 
   return (
@@ -128,6 +177,7 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
               {step === "form" && "Upload Food Donation"}
               {step === "analyzing" && "AI Quality Analysis"}
               {step === "result" && "Analysis Complete"}
+              {step === "not_food" && "Not Food Detected"}
             </h2>
             <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
               <XCircle className="w-6 h-6" />
@@ -289,68 +339,139 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
                   Analyzing Food Quality
                 </h3>
                 <p className="text-muted-foreground text-sm">
-                  Using AI to assess freshness, packaging, and hygiene...
+                  AI is evaluating presentation, freshness, color, texture, and plating...
                 </p>
+              </motion.div>
+            )}
+
+            {step === "not_food" && (
+              <motion.div
+                key="not_food"
+                className="text-center py-8"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <div className="w-20 h-20 mx-auto mb-6 bg-warning/10 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="w-10 h-10 text-warning" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground mb-2">
+                  Not a Food Image
+                </h3>
+                <p className="text-muted-foreground mb-6">
+                  {notFoodMessage}
+                </p>
+                <Button variant="hero" onClick={retryWithNewImage}>
+                  <Camera className="w-4 h-4" />
+                  Upload Food Image
+                </Button>
               </motion.div>
             )}
 
             {step === "result" && qualityAnalysis && (
               <motion.div
                 key="result"
-                className="space-y-6"
+                className="space-y-5"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
               >
-                {/* Overall Score */}
+                {/* Overall Score & Rating */}
                 <div className="text-center p-6 bg-muted/50 rounded-xl">
-                  <div className={`text-5xl font-bold ${getScoreColor(qualityAnalysis.overallScore)}`}>
-                    {qualityAnalysis.overallScore}%
+                  <div className={`text-5xl font-bold mb-2 ${getScoreColor(qualityAnalysis.overallScore)}`}>
+                    {qualityAnalysis.overallScore}
+                    <span className="text-2xl text-muted-foreground">/100</span>
                   </div>
-                  <p className="text-muted-foreground mt-2">Overall Quality Score</p>
+                  <div className={`inline-block px-4 py-1 rounded-full text-sm font-medium border ${getRatingColor(qualityAnalysis.qualityRating)}`}>
+                    {qualityAnalysis.qualityRating} Quality
+                  </div>
                 </div>
 
-                {/* Detailed Scores */}
-                <div className="space-y-4">
-                  {[
-                    { label: "Freshness", data: qualityAnalysis.freshness },
-                    { label: "Packaging", data: qualityAnalysis.packaging },
-                    { label: "Hygiene", data: qualityAnalysis.hygiene },
-                  ].map((item) => {
-                    const ScoreIcon = getScoreIcon(item.data.score);
-                    return (
-                      <div key={item.label} className="p-4 bg-muted/30 rounded-xl">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium text-foreground">{item.label}</span>
-                          <div className={`flex items-center gap-1 ${getScoreColor(item.data.score)}`}>
-                            <ScoreIcon className="w-4 h-4" />
-                            <span className="font-bold">{item.data.score}%</span>
-                          </div>
+                {/* Aspect Scores */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-foreground">Quality Analysis</h4>
+                  {Object.entries(qualityAnalysis.aspects).map(([key, aspect]) => (
+                    <div key={key} className="p-3 bg-muted/30 rounded-xl">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {aspectLabels[key]?.icon}
+                          <span className="font-medium text-foreground text-sm">
+                            {aspectLabels[key]?.label || key}
+                          </span>
                         </div>
-                        <div className="w-full bg-muted rounded-full h-2 mb-2">
-                          <motion.div
-                            className={`h-2 rounded-full ${
-                              item.data.score >= 85 ? "bg-success" :
-                              item.data.score >= 70 ? "bg-warning" : "bg-destructive"
-                            }`}
-                            initial={{ width: 0 }}
-                            animate={{ width: `${item.data.score}%` }}
-                            transition={{ duration: 0.8, delay: 0.2 }}
-                          />
-                        </div>
-                        <p className="text-sm text-muted-foreground">{item.data.details}</p>
+                        <span className={`font-bold text-sm ${getScoreColor(aspect.score)}`}>
+                          {aspect.score}%
+                        </span>
                       </div>
-                    );
-                  })}
+                      <div className="w-full bg-muted rounded-full h-2 mb-2">
+                        <motion.div
+                          className={`h-2 rounded-full ${getScoreBgColor(aspect.score)}`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${aspect.score}%` }}
+                          transition={{ duration: 0.6, delay: 0.1 }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">{aspect.comment}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Positive Points */}
+                {qualityAnalysis.positivePoints.length > 0 && (
+                  <div className="p-4 bg-success/5 border border-success/20 rounded-xl">
+                    <div className="flex items-center gap-2 mb-3">
+                      <ThumbsUp className="w-4 h-4 text-success" />
+                      <h4 className="font-semibold text-success text-sm">What's Great</h4>
+                    </div>
+                    <ul className="space-y-1">
+                      {qualityAnalysis.positivePoints.map((point, i) => (
+                        <li key={i} className="text-sm text-foreground flex items-start gap-2">
+                          <CheckCircle className="w-3 h-3 text-success mt-1 flex-shrink-0" />
+                          {point}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Improvements */}
+                {qualityAnalysis.improvements.length > 0 && (
+                  <div className="p-4 bg-warning/5 border border-warning/20 rounded-xl">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Lightbulb className="w-4 h-4 text-warning" />
+                      <h4 className="font-semibold text-warning text-sm">Suggestions</h4>
+                    </div>
+                    <ul className="space-y-1">
+                      {qualityAnalysis.improvements.map((item, i) => (
+                        <li key={i} className="text-sm text-foreground flex items-start gap-2">
+                          <span className="text-warning mt-0.5">•</span>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Summary */}
+                <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl">
+                  <p className="text-sm text-foreground">{qualityAnalysis.summary}</p>
                 </div>
 
                 {/* Recommendation */}
-                <div className="p-4 bg-success/10 border border-success/30 rounded-xl">
-                  <p className="text-success font-medium">{qualityAnalysis.recommendation}</p>
+                <div className={`p-4 rounded-xl ${
+                  qualityAnalysis.recommendation.includes("Approved") 
+                    ? "bg-success/10 border border-success/30" 
+                    : "bg-warning/10 border border-warning/30"
+                }`}>
+                  <p className={`font-medium text-sm ${
+                    qualityAnalysis.recommendation.includes("Approved") ? "text-success" : "text-warning"
+                  }`}>
+                    📋 {qualityAnalysis.recommendation}
+                  </p>
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-3">
+                <div className="flex gap-3 pt-2">
                   <Button variant="outline" className="flex-1" onClick={onClose}>
                     Cancel
                   </Button>
