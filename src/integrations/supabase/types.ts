@@ -14,16 +14,349 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      deliveries: {
+        Row: {
+          created_at: string
+          delivery_time: string | null
+          food_item_id: string | null
+          id: string
+          notes: string | null
+          organization_id: string
+          pickup_time: string | null
+          restaurant_id: string
+          status: string
+          volunteer_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          delivery_time?: string | null
+          food_item_id?: string | null
+          id?: string
+          notes?: string | null
+          organization_id: string
+          pickup_time?: string | null
+          restaurant_id: string
+          status?: string
+          volunteer_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          delivery_time?: string | null
+          food_item_id?: string | null
+          id?: string
+          notes?: string | null
+          organization_id?: string
+          pickup_time?: string | null
+          restaurant_id?: string
+          status?: string
+          volunteer_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deliveries_food_item_id_fkey"
+            columns: ["food_item_id"]
+            isOneToOne: false
+            referencedRelation: "food_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deliveries_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deliveries_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deliveries_volunteer_id_fkey"
+            columns: ["volunteer_id"]
+            isOneToOne: false
+            referencedRelation: "volunteers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      food_items: {
+        Row: {
+          category: string
+          created_at: string
+          description: string | null
+          expire_at: string
+          id: string
+          image_url: string | null
+          name: string
+          quality_rating: string | null
+          quality_score: number | null
+          quantity: string
+          restaurant_id: string
+          status: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description?: string | null
+          expire_at: string
+          id?: string
+          image_url?: string | null
+          name: string
+          quality_rating?: string | null
+          quality_score?: number | null
+          quantity: string
+          restaurant_id: string
+          status?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          expire_at?: string
+          id?: string
+          image_url?: string | null
+          name?: string
+          quality_rating?: string | null
+          quality_score?: number | null
+          quantity?: string
+          restaurant_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "food_items_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      food_requests: {
+        Row: {
+          created_at: string
+          food_type: string
+          id: string
+          notes: string | null
+          organization_id: string
+          quantity: string
+          status: string
+          urgency: string
+        }
+        Insert: {
+          created_at?: string
+          food_type: string
+          id?: string
+          notes?: string | null
+          organization_id: string
+          quantity: string
+          status?: string
+          urgency?: string
+        }
+        Update: {
+          created_at?: string
+          food_type?: string
+          id?: string
+          notes?: string | null
+          organization_id?: string
+          quantity?: string
+          status?: string
+          urgency?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "food_requests_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          notification_type: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          notification_type?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          notification_type?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      organizations: {
+        Row: {
+          address: string | null
+          created_at: string
+          document_verified: boolean
+          id: string
+          name: string
+          org_type: string
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          document_verified?: boolean
+          id?: string
+          name: string
+          org_type?: string
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          document_verified?: boolean
+          id?: string
+          name?: string
+          org_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          address: string | null
+          created_at: string
+          email: string
+          id: string
+          name: string
+          phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          email: string
+          id: string
+          name: string
+          phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          email?: string
+          id?: string
+          name?: string
+          phone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      restaurants: {
+        Row: {
+          created_at: string
+          id: string
+          location: string | null
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          location?: string | null
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          location?: string | null
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      volunteers: {
+        Row: {
+          created_at: string
+          earnings: number
+          id: string
+          is_available: boolean
+          name: string
+          user_id: string
+          vehicle_type: string | null
+        }
+        Insert: {
+          created_at?: string
+          earnings?: number
+          id?: string
+          is_available?: boolean
+          name: string
+          user_id: string
+          vehicle_type?: string | null
+        }
+        Update: {
+          created_at?: string
+          earnings?: number
+          id?: string
+          is_available?: boolean
+          name?: string
+          user_id?: string
+          vehicle_type?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_role: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "restaurant" | "organization" | "volunteer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +483,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["restaurant", "organization", "volunteer"],
+    },
   },
 } as const
