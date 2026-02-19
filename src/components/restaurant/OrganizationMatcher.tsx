@@ -3,25 +3,94 @@ import { motion } from "framer-motion";
 import { ArrowLeft, MapPin, Clock, Star, CheckCircle, Truck, Send, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { useCrossRoleData, PublicOrganization, PublicVolunteer } from "@/hooks/useCrossRoleData";
-import { useRestaurantData, FoodItemRecord } from "@/hooks/useRestaurantData";
-import { useDeliveryData, DeliveryRecord } from "@/hooks/useDeliveryData";
+import { useAuth } from "@/hooks/useAuth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import type { FoodItemRecord, DeliveryRecord } from "./RestaurantDashboard";
+
+interface PublicOrganization {
+  id: string;
+  name: string;
+  org_type: string;
+  organizationType: string;
+  address: string | null;
+  document_verified: boolean;
+  needsFood?: boolean;
+  foodNeeds?: string[];
+}
+
+interface PublicVolunteer {
+  id: string;
+  name: string;
+  vehicle_type: string | null;
+  vehicleType: string | null;
+  is_available: boolean;
+  earnings: number;
+  rating: number;
+  completedDeliveries: number;
+}
 
 interface OrganizationMatcherProps {
   foodItem: FoodItemRecord;
   onBack: () => void;
   onDeliveryCreated: (delivery: DeliveryRecord) => void;
+  restaurant?: { id: string; name: string } | null;
 }
 
 export const OrganizationMatcher = ({
   foodItem,
   onBack,
   onDeliveryCreated,
+  restaurant,
 }: OrganizationMatcherProps) => {
-  const { organizations, volunteers, organizationsLoading, volunteersLoading } = useCrossRoleData();
-  const { restaurant } = useRestaurantData();
-  const { createDelivery } = useDeliveryData("restaurant");
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // Inline data fetching
+  const { data: organizations = [], isLoading: organizationsLoading } = useQuery({
+    queryKey: ["organizations_list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("organizations").select("*");
+      if (error) throw error;
+      return data.map((org) => ({
+        ...org,
+        organizationType: org.org_type,
+        needsFood: true,
+        foodNeeds: [] as string[],
+      })) as PublicOrganization[];
+    },
+    enabled: !!user?.id,
+  });
+
+  const { data: volunteers = [], isLoading: volunteersLoading } = useQuery({
+    queryKey: ["volunteers_list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("volunteers").select("*");
+      if (error) throw error;
+      return data.map((vol) => ({
+        ...vol,
+        vehicleType: vol.vehicle_type,
+        rating: 4.5,
+        completedDeliveries: 0,
+      })) as PublicVolunteer[];
+    },
+    enabled: !!user?.id,
+  });
+
+  const createDelivery = useMutation({
+    mutationFn: async (input: { food_item_id?: string; restaurant_id: string; organization_id: string; volunteer_id?: string | null; }) => {
+      const { data, error } = await supabase
+        .from("deliveries")
+        .insert({ food_item_id: input.food_item_id || null, restaurant_id: input.restaurant_id, organization_id: input.organization_id, volunteer_id: input.volunteer_id || null, status: "pending" })
+        .select("*, food_item:food_items(name), organization:organizations(name), restaurant:restaurants(name), volunteer:volunteers(name)")
+        .single();
+      if (error) throw error;
+      return data as DeliveryRecord;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["deliveries"] }); },
+  });
+
   const [step, setStep] = useState<"org" | "volunteer" | "confirm">("org");
   const [selectedOrg, setSelectedOrg] = useState<PublicOrganization | null>(null);
   const [selectedVolunteer, setSelectedVolunteer] = useState<PublicVolunteer | null>(null);
@@ -66,7 +135,6 @@ export const OrganizationMatcher = ({
 
       onDeliveryCreated(delivery);
     } catch (error) {
-      console.error("Failed to create delivery:", error);
       toast({
         title: "Error",
         description: "Failed to create delivery. Please try again.",
@@ -81,7 +149,6 @@ export const OrganizationMatcher = ({
 
   return (
     <div className="min-h-screen bg-gradient-hero">
-      {/* Header */}
       <div className="bg-card border-b border-border shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4">
           <Button variant="ghost" onClick={onBack} className="gap-2 mb-4">
@@ -92,12 +159,11 @@ export const OrganizationMatcher = ({
             {step === "org" ? "Select Organization" : "Select Volunteer"}
           </h1>
           <p className="text-muted-foreground">
-            Donating: {foodItem.name} ({foodItem.quantity} {foodItem.unit})
+            Donating: {foodItem.name} ({foodItem.quantity})
           </p>
         </div>
       </div>
 
-      {/* Progress Steps */}
       <div className="max-w-4xl mx-auto px-4 pt-6">
         <div className="flex items-center gap-2 mb-6">
           {["Organization", "Volunteer", "Confirm"].map((label, index) => {
@@ -129,22 +195,23 @@ export const OrganizationMatcher = ({
       </div>
 
       <div className="max-w-4xl mx-auto px-4 pb-6">
-        {step === "org" && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
+        {isLoading && (
+          <div className="flex justify-center items-center py-8">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        )}
+
+        {step === "org" && !isLoading && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <p className="text-sm text-muted-foreground mb-4">
-              AI matched these nearby organizations based on your location and food type
+              Select an organization to receive your donation
             </p>
             <div className="grid gap-4">
               {organizations.map((org, index) => (
                 <motion.button
                   key={org.id}
                   className={`w-full bg-card rounded-xl p-5 shadow-md border-2 text-left transition-all ${
-                    selectedOrg?.id === org.id
-                      ? "border-primary"
-                      : "border-transparent hover:border-primary/30"
+                    selectedOrg?.id === org.id ? "border-primary" : "border-transparent hover:border-primary/30"
                   }`}
                   onClick={() => handleOrgSelect(org)}
                   initial={{ opacity: 0, y: 20 }}
@@ -162,30 +229,15 @@ export const OrganizationMatcher = ({
                         <h3 className="font-bold text-foreground">{org.name}</h3>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                           <MapPin className="w-3 h-3" />
-                          {org.address}
+                          {org.address || "No address"}
                         </div>
                         <div className="flex items-center gap-4 mt-2 flex-wrap">
-                          <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">
-                            Verified ✓
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {(Math.random() * 4 + 1).toFixed(1)} km away
-                          </span>
-                          {org.needsFood && (
-                            <span className="text-xs bg-warning/10 text-warning px-2 py-1 rounded-full">
-                              Needs Food
+                          {org.document_verified && (
+                            <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">
+                              Verified ✓
                             </span>
                           )}
                         </div>
-                        {org.foodNeeds && org.foodNeeds.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {org.foodNeeds.map((need) => (
-                              <span key={need} className="text-xs bg-muted px-2 py-0.5 rounded">
-                                {need}
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     </div>
                     <div className="text-right">
@@ -200,11 +252,8 @@ export const OrganizationMatcher = ({
           </motion.div>
         )}
 
-        {step === "volunteer" && selectedOrg && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
+        {step === "volunteer" && selectedOrg && !isLoading && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <div className="bg-card rounded-xl p-4 mb-6 border border-border/50">
               <p className="text-sm text-muted-foreground">Delivering to:</p>
               <p className="font-semibold text-foreground">{selectedOrg.name}</p>
@@ -237,8 +286,7 @@ export const OrganizationMatcher = ({
                   <div>
                     <p className="font-medium text-foreground">Post as Open Request</p>
                     <p className="text-sm text-muted-foreground">
-                      Available volunteers will see your donation request and can claim it. 
-                      You'll be notified when someone accepts.
+                      Available volunteers will see your donation request and can claim it.
                     </p>
                   </div>
                 </div>
@@ -256,10 +304,7 @@ export const OrganizationMatcher = ({
                         ? "border-transparent opacity-50" 
                         : "border-transparent hover:border-primary/30"
                   }`}
-                  onClick={() => {
-                    setSkipVolunteer(false);
-                    handleVolunteerSelect(vol);
-                  }}
+                  onClick={() => { setSkipVolunteer(false); handleVolunteerSelect(vol); }}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.1 }}
@@ -284,10 +329,7 @@ export const OrganizationMatcher = ({
                         </div>
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs bg-muted px-2 py-1 rounded-full capitalize">
-                            {vol.vehicleType}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {(Math.random() * 2 + 0.5).toFixed(1)} km away
+                            {vol.vehicleType || "unknown"}
                           </span>
                           <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">
                             Available
@@ -295,29 +337,25 @@ export const OrganizationMatcher = ({
                         </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-primary">
-                        ${(Math.random() * 10 + 5).toFixed(0)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">delivery fee</p>
-                    </div>
                   </div>
                 </motion.button>
               ))}
             </div>
 
             {(selectedVolunteer || skipVolunteer) && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                 <Button
-                  variant="hero"
+                  variant="default"
                   size="lg"
                   className="w-full"
                   onClick={confirmDelivery}
+                  disabled={isSubmitting}
                 >
-                  <CheckCircle className="w-5 h-5 mr-2" />
+                  {isSubmitting ? (
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-5 h-5 mr-2" />
+                  )}
                   {skipVolunteer ? "Post Request" : "Confirm & Start Delivery"}
                 </Button>
               </motion.div>

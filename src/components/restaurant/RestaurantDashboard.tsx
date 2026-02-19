@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+// @ts-ignore - DeliveryTracker uses legacy Delivery type, we pass DeliveryRecord
 import {
   Plus, Package, Truck, MapPin, Clock, ChevronRight,
   LogOut, CheckCircle, Users, DollarSign, Loader2
@@ -9,9 +10,41 @@ import { Logo } from "@/components/Logo";
 import { FoodUpload } from "./FoodUpload";
 import { OrganizationMatcher } from "./OrganizationMatcher";
 import { DeliveryTracker } from "../shared/DeliveryTracker";
-import { useRestaurantData, FoodItemRecord } from "@/hooks/useRestaurantData";
-import { useDeliveryData, DeliveryRecord } from "@/hooks/useDeliveryData";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+
+export interface FoodItemRecord {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  description?: string | null;
+  quantity: string;
+  category: string;
+  image_url?: string | null;
+  quality_score?: number | null;
+  quality_rating?: string | null;
+  expire_at: string;
+  status: string;
+  created_at: string;
+}
+
+export interface DeliveryRecord {
+  id: string;
+  food_item_id: string | null;
+  restaurant_id: string;
+  organization_id: string;
+  volunteer_id: string | null;
+  status: string;
+  pickup_time: string | null;
+  delivery_time: string | null;
+  notes: string | null;
+  created_at: string;
+  food_item?: { name: string } | null;
+  organization?: { name: string } | null;
+  restaurant?: { name: string } | null;
+  volunteer?: { name: string } | null;
+}
 
 interface RestaurantDashboardProps {
   onLogout: () => void;
@@ -21,8 +54,72 @@ type View = "dashboard" | "upload" | "match" | "tracking";
 
 export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
   const { user } = useAuth();
-  const { restaurant, foodItems, foodItemsLoading, updateFoodItem } = useRestaurantData();
-  const { deliveries, deliveriesLoading, createDelivery } = useDeliveryData("restaurant");
+  const queryClient = useQueryClient();
+
+  // Inline restaurant data fetching
+  const { data: restaurant } = useQuery({
+    queryKey: ["restaurant", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("restaurants").select("*").eq("user_id", user!.id).single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const { data: foodItems = [], isLoading: foodItemsLoading } = useQuery({
+    queryKey: ["food_items", restaurant?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("food_items").select("*").eq("restaurant_id", restaurant!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as FoodItemRecord[];
+    },
+    enabled: !!restaurant?.id,
+  });
+
+  const updateFoodItem = useMutation({
+    mutationFn: async (params: { id: string; status?: string }) => {
+      const { id, ...updates } = params;
+      const { data, error } = await supabase
+        .from("food_items").update(updates).eq("id", id).select().single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["food_items"] }); },
+  });
+
+  // Inline delivery data fetching
+  const { data: deliveries = [], isLoading: deliveriesLoading } = useQuery({
+    queryKey: ["deliveries", "restaurant", user?.id],
+    queryFn: async () => {
+      if (!restaurant?.id) return [];
+      const { data, error } = await supabase
+        .from("deliveries")
+        .select("*, food_item:food_items(name), organization:organizations(name), restaurant:restaurants(name), volunteer:volunteers(name)")
+        .eq("restaurant_id", restaurant.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as DeliveryRecord[];
+    },
+    enabled: !!restaurant?.id,
+  });
+
+  const createDelivery = useMutation({
+    mutationFn: async (input: { food_item_id?: string; restaurant_id: string; organization_id: string; volunteer_id?: string | null; }) => {
+      const { data, error } = await supabase
+        .from("deliveries")
+        .insert({ food_item_id: input.food_item_id || null, restaurant_id: input.restaurant_id, organization_id: input.organization_id, volunteer_id: input.volunteer_id || null, status: "pending" })
+        .select("*, food_item:food_items(name), organization:organizations(name), restaurant:restaurants(name), volunteer:volunteers(name)")
+        .single();
+      if (error) throw error;
+      return data as DeliveryRecord;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["deliveries"] }); },
+  });
+
   const [view, setView] = useState<View>("dashboard");
   const [selectedFood, setSelectedFood] = useState<FoodItemRecord | null>(null);
   const [selectedDelivery, setSelectedDelivery] = useState<DeliveryRecord | null>(null);
@@ -31,13 +128,12 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
   const activeDeliveries = deliveries.filter(d => d.status !== "delivered");
   const completedDeliveries = deliveries.filter(d => d.status === "delivered");
 
-  const handleFoodUploadSuccess = (item: FoodItemRecord) => {
-    setSelectedFood(item);
+  const handleFoodUploadSuccess = (item: any) => {
+    setSelectedFood(item as FoodItemRecord);
     setView("match");
   };
 
   const handleDeliveryCreated = async (delivery: DeliveryRecord) => {
-    // Update food item status if there's one attached
     if (delivery.food_item_id) {
       await updateFoodItem.mutateAsync({ id: delivery.food_item_id, status: "matched" });
     }
@@ -49,7 +145,6 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
 
   return (
     <div className="min-h-screen bg-gradient-hero">
-      {/* Header */}
       <div className="bg-card border-b border-border shadow-sm">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <Logo size="sm" />
@@ -64,7 +159,6 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="max-w-6xl mx-auto px-4 py-6">
         <AnimatePresence mode="wait">
           {view === "dashboard" && (
@@ -74,7 +168,6 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
             >
-              {/* Welcome */}
               <div className="mb-8">
                 <h1 className="text-2xl font-bold text-foreground">
                   Welcome, {restaurant?.name?.split(' ')[0] || 'Restaurant'}! 👋
@@ -90,7 +183,6 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                 </div>
               )}
 
-              {/* Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 {[
                   { label: "Active Donations", value: pendingItems.length, icon: Package, color: "bg-primary/10 text-primary" },
@@ -112,7 +204,6 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                 ))}
               </div>
 
-              {/* Quick Action */}
               <motion.button
                 className="w-full bg-gradient-primary text-primary-foreground rounded-xl p-6 shadow-lg mb-8 flex items-center justify-between group"
                 onClick={() => setView("upload")}
@@ -133,7 +224,6 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                 <ChevronRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
               </motion.button>
 
-              {/* Active Deliveries */}
               {activeDeliveries.length > 0 && (
                 <div className="mb-8">
                   <h2 className="text-lg font-bold text-foreground mb-4">Active Deliveries</h2>
@@ -142,10 +232,7 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                       <motion.button
                         key={delivery.id}
                         className="w-full bg-card rounded-xl p-4 shadow-md border border-border/50 flex items-center justify-between text-left"
-                        onClick={() => {
-                          setSelectedDelivery(delivery);
-                          setView("tracking");
-                        }}
+                        onClick={() => { setSelectedDelivery(delivery); setView("tracking"); }}
                         whileHover={{ y: -2 }}
                       >
                         <div className="flex items-center gap-4">
@@ -176,7 +263,6 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                 </div>
               )}
 
-              {/* Pending Items */}
               {pendingItems.length > 0 && (
                 <div>
                   <h2 className="text-lg font-bold text-foreground mb-4">Pending Donations</h2>
@@ -188,17 +274,11 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                         whileHover={{ y: -2 }}
                       >
                         {item.image_url && (
-                          <img
-                            src={item.image_url}
-                            alt={item.name}
-                            className="w-full h-32 object-cover"
-                          />
+                          <img src={item.image_url} alt={item.name} className="w-full h-32 object-cover" />
                         )}
                         <div className="p-4">
                           <h4 className="font-semibold text-foreground">{item.name}</h4>
-                          <p className="text-sm text-muted-foreground mb-3">
-                            {item.quantity}
-                          </p>
+                          <p className="text-sm text-muted-foreground mb-3">{item.quantity}</p>
                           {item.quality_score && (
                             <div className="flex items-center gap-2 mb-3">
                               <span className="text-xs bg-success/10 text-success px-2 py-1 rounded-full">
@@ -206,15 +286,7 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                               </span>
                             </div>
                           )}
-                          <Button
-                            variant="default"
-                            size="sm"
-                            className="w-full"
-                            onClick={() => {
-                              setSelectedFood(item);
-                              setView("match");
-                            }}
-                          >
+                          <Button variant="default" size="sm" className="w-full" onClick={() => { setSelectedFood(item); setView("match"); }}>
                             <Users className="w-4 h-4 mr-2" />
                             Find Organization
                           </Button>
@@ -229,13 +301,9 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
         </AnimatePresence>
       </div>
 
-      {/* Modals */}
       <AnimatePresence>
         {view === "upload" && (
-          <FoodUpload
-            onClose={() => setView("dashboard")}
-            onSuccess={handleFoodUploadSuccess}
-          />
+          <FoodUpload onClose={() => setView("dashboard")} onSuccess={handleFoodUploadSuccess} />
         )}
       </AnimatePresence>
 
@@ -244,16 +312,14 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
           foodItem={selectedFood}
           onBack={() => setView("dashboard")}
           onDeliveryCreated={handleDeliveryCreated}
+          restaurant={restaurant}
         />
       )}
 
       {view === "tracking" && selectedDelivery && (
         <DeliveryTracker
-          delivery={selectedDelivery}
-          onBack={() => {
-            setSelectedDelivery(null);
-            setView("dashboard");
-          }}
+          delivery={selectedDelivery as any}
+          onBack={() => { setSelectedDelivery(null); setView("dashboard"); }}
           userRole="restaurant"
         />
       )}
