@@ -1,12 +1,66 @@
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Building2, Mail, Phone, MapPin, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { ArrowLeft, Building2, Mail, Phone, Lock, Eye, EyeOff, Loader2, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/Logo";
+import { GoogleMap, Marker, Autocomplete } from "@react-google-maps/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+
+const mapContainerStyle = { width: "100%", height: "200px", borderRadius: "0.75rem" };
+const defaultCenter = { lat: 28.6139, lng: 77.209 };
+
+const LocationPicker = ({ value, onChange, placeholder = "Search address...", disabled }: {
+  value: string; onChange: (addr: string) => void; placeholder?: string; disabled?: boolean;
+}) => {
+  const [marker, setMarker] = useState<google.maps.LatLngLiteral | null>(null);
+  const acRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
+  const onPlaceChanged = useCallback(() => {
+    const place = acRef.current?.getPlace();
+    if (place?.geometry?.location) {
+      setMarker({ lat: place.geometry.location.lat(), lng: place.geometry.location.lng() });
+      onChange(place.formatted_address || place.name || "");
+    }
+  }, [onChange]);
+
+  const handleMapClick = useCallback((e: google.maps.MapMouseEvent) => {
+    if (e.latLng) {
+      const lat = e.latLng.lat(), lng = e.latLng.lng();
+      setMarker({ lat, lng });
+      new google.maps.Geocoder().geocode({ location: { lat, lng } }, (results, status) => {
+        onChange(status === "OK" && results?.[0] ? results[0].formatted_address : `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+      });
+    }
+  }, [onChange]);
+
+  if (!apiKey) {
+    return (
+      <div className="relative">
+        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input placeholder={placeholder} className="pl-10" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <Autocomplete onLoad={(ac) => { acRef.current = ac; }} onPlaceChanged={onPlaceChanged}>
+        <div className="relative">
+          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder={placeholder} className="pl-10" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} />
+        </div>
+      </Autocomplete>
+      <GoogleMap mapContainerStyle={mapContainerStyle} center={marker || defaultCenter} zoom={marker ? 15 : 12} onClick={handleMapClick}
+        options={{ disableDefaultUI: true, zoomControl: true }}>
+        {marker && <Marker position={marker} />}
+      </GoogleMap>
+    </div>
+  );
+};
 
 interface RestaurantAuthProps {
   onBack: () => void;
@@ -148,18 +202,12 @@ export const RestaurantAuth = ({ onBack, onSuccess }: RestaurantAuthProps) => {
 
                 <div className="space-y-2">
                   <Label htmlFor="address">Location / Address</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      id="address"
-                      placeholder="123 Main Street, City"
-                      className="pl-10"
-                      value={formData.address}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                      required
-                      disabled={isLoading}
-                    />
-                  </div>
+                  <LocationPicker
+                    value={formData.address}
+                    onChange={(address) => setFormData({ ...formData, address })}
+                    placeholder="Search your restaurant address..."
+                    disabled={isLoading}
+                  />
                 </div>
               </>
             )}

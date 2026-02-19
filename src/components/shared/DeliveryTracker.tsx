@@ -5,10 +5,61 @@ import {
   Package, Truck, Building2, CreditCard, User
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GoogleMap, Marker, DirectionsRenderer } from "@react-google-maps/api";
 import { useAppStore } from "@/store/appStore";
 import { useToast } from "@/hooks/use-toast";
 import { createDeliveryNotifications } from "@/lib/notifications";
 import type { Delivery } from "@/types";
+
+const routeMapStyle = { width: "100%", height: "280px", borderRadius: "0.75rem" };
+const defaultCenter = { lat: 28.6139, lng: 77.209 };
+
+const DeliveryMapView = ({ pickupAddress, dropoffAddress, showRoute = true }: {
+  pickupAddress?: string; dropoffAddress?: string; showRoute?: boolean;
+}) => {
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
+  const [pickupPos, setPickupPos] = useState<google.maps.LatLngLiteral | null>(null);
+  const [dropoffPos, setDropoffPos] = useState<google.maps.LatLngLiteral | null>(null);
+
+  useEffect(() => {
+    if (!apiKey || !pickupAddress || !dropoffAddress) return;
+    const geocoder = new google.maps.Geocoder();
+    const geocode = (address: string): Promise<google.maps.LatLngLiteral | null> =>
+      new Promise(resolve => {
+        geocoder.geocode({ address }, (results, status) => {
+          if (status === "OK" && results?.[0]?.geometry?.location)
+            resolve({ lat: results[0].geometry.location.lat(), lng: results[0].geometry.location.lng() });
+          else resolve(null);
+        });
+      });
+    (async () => {
+      const [p, d] = await Promise.all([geocode(pickupAddress), geocode(dropoffAddress)]);
+      setPickupPos(p); setDropoffPos(d);
+      if (showRoute && p && d) {
+        new google.maps.DirectionsService().route(
+          { origin: p, destination: d, travelMode: google.maps.TravelMode.DRIVING },
+          (result, status) => { if (status === "OK" && result) setDirections(result); }
+        );
+      }
+    })();
+  }, [apiKey, pickupAddress, dropoffAddress, showRoute]);
+
+  if (!apiKey) return (
+    <div className="h-48 bg-gradient-to-br from-primary/10 to-info/10 rounded-xl flex items-center justify-center">
+      <p className="text-sm text-muted-foreground">Map unavailable</p>
+    </div>
+  );
+
+  return (
+    <GoogleMap mapContainerStyle={routeMapStyle} center={pickupPos || dropoffPos || defaultCenter} zoom={13}
+      options={{ disableDefaultUI: true, zoomControl: true }}>
+      {pickupPos && <Marker position={pickupPos} label={{ text: "P", color: "white", fontWeight: "bold" }} />}
+      {dropoffPos && <Marker position={dropoffPos} label={{ text: "D", color: "white", fontWeight: "bold" }} />}
+      {directions && <DirectionsRenderer directions={directions} options={{ suppressMarkers: true }} />}
+    </GoogleMap>
+  );
+};
 
 interface DeliveryTrackerProps {
   delivery: Delivery;
@@ -113,56 +164,29 @@ export const DeliveryTracker = ({ delivery, onBack, userRole }: DeliveryTrackerP
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
-        {/* Live Map Simulation */}
+        {/* Live Map */}
         <motion.div
           className="bg-card rounded-2xl overflow-hidden shadow-lg mb-6 border border-border/50"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <div className="relative h-48 bg-gradient-to-br from-primary/10 to-info/10">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <motion.div
-                  className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto shadow-lg"
-                  animate={{
-                    x: currentStatus === "in_transit" ? [0, 50, 100, 50, 0] : 0,
-                  }}
-                  transition={{
-                    duration: 4,
-                    repeat: currentStatus === "in_transit" ? Infinity : 0,
-                    ease: "easeInOut",
-                  }}
-                >
-                  <Truck className="w-8 h-8 text-primary-foreground" />
-                </motion.div>
-                <p className="mt-3 text-sm text-muted-foreground">
-                  {currentStatus === "pending" && "Waiting for a volunteer..."}
-                  {currentStatus === "volunteer_assigned" && "Volunteer on the way to pickup"}
-                  {currentStatus === "picked_up" && "Ready to start delivery"}
-                  {currentStatus === "in_transit" && "Live tracking active..."}
-                  {currentStatus === "delivered" && "Delivery complete! 🎉"}
-                </p>
-              </div>
+          <DeliveryMapView
+            pickupAddress={currentDelivery.restaurantAddress || currentDelivery.foodItem?.restaurantAddress}
+            dropoffAddress={currentDelivery.organizationAddress}
+            showRoute={["in_transit", "picked_up", "volunteer_assigned"].includes(currentStatus)}
+          />
+          <div className="px-4 py-3">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>{currentDelivery.restaurantName || currentDelivery.foodItem?.restaurantName}</span>
+              <span>{currentDelivery.organizationName}</span>
             </div>
-            
-            {/* Route visualization */}
-            <div className="absolute bottom-4 left-4 right-4">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-primary rounded-full" />
-                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full bg-primary rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${location.progress}%` }}
-                  />
-                </div>
-                <div className="w-3 h-3 bg-accent rounded-full" />
-              </div>
-              <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-                <span>{currentDelivery.restaurantName || currentDelivery.foodItem?.restaurantName}</span>
-                <span>{currentDelivery.organizationName}</span>
-              </div>
-            </div>
+            <p className="mt-2 text-sm text-center text-muted-foreground">
+              {currentStatus === "pending" && "Waiting for a volunteer..."}
+              {currentStatus === "volunteer_assigned" && "Volunteer on the way to pickup"}
+              {currentStatus === "picked_up" && "Ready to start delivery"}
+              {currentStatus === "in_transit" && "Live tracking active..."}
+              {currentStatus === "delivered" && "Delivery complete! 🎉"}
+            </p>
           </div>
         </motion.div>
 

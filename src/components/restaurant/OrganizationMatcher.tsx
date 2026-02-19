@@ -1,12 +1,63 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, MapPin, Clock, Star, CheckCircle, Truck, Send, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GoogleMap, Marker, InfoWindow } from "@react-google-maps/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { FoodItemRecord, DeliveryRecord } from "./RestaurantDashboard";
+
+const mapContainerStyle = { width: "100%", height: "300px", borderRadius: "0.75rem" };
+const defaultCenter = { lat: 28.6139, lng: 77.209 };
+
+interface MapLoc { id: string; name: string; address: string; position?: google.maps.LatLngLiteral; }
+
+const NearbyMatchesMap = ({ locations, onSelect }: { locations: { id: string; name: string; address: string }[]; onSelect?: (id: string) => void }) => {
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const [markers, setMarkers] = useState<MapLoc[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [center, setCenter] = useState(defaultCenter);
+
+  useEffect(() => {
+    if (!apiKey || locations.length === 0) return;
+    const geocoder = new google.maps.Geocoder();
+    Promise.all(locations.map(loc => new Promise<MapLoc | null>(resolve => {
+      if (!loc.address) { resolve(null); return; }
+      geocoder.geocode({ address: loc.address }, (results, status) => {
+        if (status === "OK" && results?.[0]?.geometry?.location) {
+          resolve({ ...loc, position: { lat: results[0].geometry.location.lat(), lng: results[0].geometry.location.lng() } });
+        } else resolve(null);
+      });
+    }))).then(results => {
+      const valid = results.filter(Boolean) as MapLoc[];
+      setMarkers(valid);
+      if (valid.length > 0 && valid[0].position) setCenter(valid[0].position);
+    });
+  }, [apiKey, locations]);
+
+  if (!apiKey) return (
+    <div className="h-48 bg-gradient-to-br from-primary/10 to-info/10 rounded-xl flex items-center justify-center">
+      <p className="text-sm text-muted-foreground">Map unavailable</p>
+    </div>
+  );
+
+  const selected = markers.find(m => m.id === selectedId);
+
+  return (
+    <GoogleMap mapContainerStyle={mapContainerStyle} center={center} zoom={12} options={{ disableDefaultUI: true, zoomControl: true }}>
+      {markers.map(m => m.position && (
+        <Marker key={m.id} position={m.position} onClick={() => { setSelectedId(m.id); onSelect?.(m.id); }} />
+      ))}
+      {selected?.position && (
+        <InfoWindow position={selected.position} onCloseClick={() => setSelectedId(null)}>
+          <div className="p-1"><p className="font-semibold text-sm">{selected.name}</p><p className="text-xs text-gray-500">{selected.address}</p></div>
+        </InfoWindow>
+      )}
+    </GoogleMap>
+  );
+};
 
 interface PublicOrganization {
   id: string;
@@ -203,6 +254,20 @@ export const OrganizationMatcher = ({
 
         {step === "org" && !isLoading && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="mb-6">
+              <NearbyMatchesMap
+                locations={organizations.map(org => ({
+                  id: org.id,
+                  name: org.name,
+                  address: org.address || "",
+                  type: "organization" as const,
+                }))}
+                onSelect={(id) => {
+                  const org = organizations.find(o => o.id === id);
+                  if (org) handleOrgSelect(org);
+                }}
+              />
+            </div>
             <p className="text-sm text-muted-foreground mb-4">
               Select an organization to receive your donation
             </p>
