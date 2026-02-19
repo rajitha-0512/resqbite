@@ -37,7 +37,7 @@ export const Logo = ({ size = "md", animated = false }: LogoProps) => {
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.3, duration: 0.5 }}
         >
-          ResQBite
+          MealBridge
         </motion.span>
       </div>
     );
@@ -51,7 +51,7 @@ export const Logo = ({ size = "md", animated = false }: LogoProps) => {
         <span className={`${sizeClasses[size]} filter drop-shadow-md`}>🍽️</span>
       </div>
       <span className={`${sizeClasses[size]} font-bold text-gradient-primary`}>
-        ResQBite
+        MealBridge
       </span>
     </div>
   );
