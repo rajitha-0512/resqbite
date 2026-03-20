@@ -115,7 +115,7 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
       const { data: restaurant, error: restError } = await supabase
         .from("restaurants")
         .select("id, name, location")
-        .eq("user_id", currentUser.id)
+        .eq("user_id", user.id)
         .single();
       
       if (restError || !restaurant) {
