@@ -62,7 +62,7 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
       const { data: organization, error: orgError } = await supabase
         .from("organizations")
         .select("id, name, address")
-        .eq("user_id", currentUser?.id)
+        .eq("user_id", user?.id)
         .single();
 
       if (orgError || !organization) {
