@@ -19,7 +19,7 @@ interface FoodUploadProps {
 }
 
 export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
-  const { currentUser } = useAppStore();
+  const { user } = useAuth();
   const [step, setStep] = useState<"form" | "analyzing" | "result" | "not_food">("form");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [qualityAnalysis, setQualityAnalysis] = useState<QualityAnalysis | null>(null);
