@@ -364,6 +364,65 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
           userRole="restaurant"
         />
       )}
+
+      {view === "history" && (
+        <div className="min-h-screen bg-gradient-hero">
+          <div className="bg-card border-b border-border shadow-sm">
+            <div className="max-w-6xl mx-auto px-4 py-4">
+              <Button variant="ghost" onClick={() => setView("dashboard")} className="gap-2 mb-2">
+                <ArrowLeft className="w-4 h-4" />
+                Back to Dashboard
+              </Button>
+              <h1 className="text-xl font-bold text-foreground">Donation History</h1>
+              <p className="text-muted-foreground text-sm">{completedDeliveries.length} completed donations</p>
+            </div>
+          </div>
+          <div className="max-w-6xl mx-auto px-4 py-6 space-y-3">
+            {completedDeliveries.length === 0 ? (
+              <div className="bg-card rounded-xl p-8 text-center shadow-md border border-border/50">
+                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                  <History className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <h3 className="font-semibold text-foreground mb-2">No donation history</h3>
+                <p className="text-muted-foreground text-sm">Completed donations will appear here</p>
+              </div>
+            ) : (
+              completedDeliveries.map((delivery, index) => (
+                <motion.div
+                  key={delivery.id}
+                  className="bg-card rounded-xl p-5 shadow-md border border-border/50"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
+                        <CheckCircle className="w-6 h-6 text-success" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-foreground">
+                          {delivery.food_item?.name || "Food Delivery"}
+                        </h4>
+                        <p className="text-sm text-muted-foreground">
+                          To: {delivery.organization?.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          <Calendar className="w-3 h-3 inline mr-1" />
+                          {new Date(delivery.created_at).toLocaleDateString()} at {new Date(delivery.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-success/10 text-success">
+                      Delivered ✓
+                    </span>
+                  </div>
+                </motion.div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
