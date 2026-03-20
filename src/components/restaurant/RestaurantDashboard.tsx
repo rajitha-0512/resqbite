@@ -2,8 +2,8 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 // @ts-ignore - DeliveryTracker uses legacy Delivery type, we pass DeliveryRecord
 import {
-  Plus, Package, Truck, MapPin, Clock, ChevronRight,
-  LogOut, CheckCircle, Users, DollarSign, Loader2
+  Plus, Package, Truck, MapPin, Clock, ChevronRight, ArrowLeft,
+  LogOut, CheckCircle, Users, DollarSign, Loader2, History, Calendar
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
