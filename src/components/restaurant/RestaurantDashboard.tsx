@@ -2,8 +2,8 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 // @ts-ignore - DeliveryTracker uses legacy Delivery type, we pass DeliveryRecord
 import {
-  Plus, Package, Truck, MapPin, Clock, ChevronRight,
-  LogOut, CheckCircle, Users, DollarSign, Loader2
+  Plus, Package, Truck, MapPin, Clock, ChevronRight, ArrowLeft,
+  LogOut, CheckCircle, Users, DollarSign, Loader2, History, Calendar
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
@@ -50,7 +50,7 @@ interface RestaurantDashboardProps {
   onLogout: () => void;
 }
 
-type View = "dashboard" | "upload" | "match" | "tracking";
+type View = "dashboard" | "upload" | "match" | "tracking" | "history";
 
 export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
   const { user } = useAuth();
@@ -264,7 +264,7 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
               )}
 
               {pendingItems.length > 0 && (
-                <div>
+                <div className="mb-8">
                   <h2 className="text-lg font-bold text-foreground mb-4">Pending Donations</h2>
                   <div className="grid md:grid-cols-2 gap-4">
                     {pendingItems.map((item) => (
@@ -296,6 +296,47 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                   </div>
                 </div>
               )}
+
+              {/* History Section */}
+              {completedDeliveries.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold text-foreground">Recent History</h2>
+                    {completedDeliveries.length > 3 && (
+                      <Button variant="ghost" size="sm" onClick={() => setView("history")}>
+                        View All
+                        <ChevronRight className="w-4 h-4 ml-1" />
+                      </Button>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    {completedDeliveries.slice(0, 3).map((delivery) => (
+                      <motion.div
+                        key={delivery.id}
+                        className="bg-card rounded-xl p-4 shadow-md border border-border/50 flex items-center justify-between"
+                        whileHover={{ y: -2 }}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-success/10 rounded-lg flex items-center justify-center">
+                            <CheckCircle className="w-5 h-5 text-success" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-foreground">
+                              {delivery.food_item?.name || "Food Delivery"}
+                            </h4>
+                            <p className="text-sm text-muted-foreground">
+                              To: {delivery.organization?.name}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(delivery.created_at).toLocaleDateString()}
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -322,6 +363,65 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
           onBack={() => { setSelectedDelivery(null); setView("dashboard"); }}
           userRole="restaurant"
         />
+      )}
+
+      {view === "history" && (
+        <div className="min-h-screen bg-gradient-hero">
+          <div className="bg-card border-b border-border shadow-sm">
+            <div className="max-w-6xl mx-auto px-4 py-4">
+              <Button variant="ghost" onClick={() => setView("dashboard")} className="gap-2 mb-2">
+                <ArrowLeft className="w-4 h-4" />
+                Back to Dashboard
+              </Button>
+              <h1 className="text-xl font-bold text-foreground">Donation History</h1>
+              <p className="text-muted-foreground text-sm">{completedDeliveries.length} completed donations</p>
+            </div>
+          </div>
+          <div className="max-w-6xl mx-auto px-4 py-6 space-y-3">
+            {completedDeliveries.length === 0 ? (
+              <div className="bg-card rounded-xl p-8 text-center shadow-md border border-border/50">
+                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                  <History className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <h3 className="font-semibold text-foreground mb-2">No donation history</h3>
+                <p className="text-muted-foreground text-sm">Completed donations will appear here</p>
+              </div>
+            ) : (
+              completedDeliveries.map((delivery, index) => (
+                <motion.div
+                  key={delivery.id}
+                  className="bg-card rounded-xl p-5 shadow-md border border-border/50"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
+                        <CheckCircle className="w-6 h-6 text-success" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-foreground">
+                          {delivery.food_item?.name || "Food Delivery"}
+                        </h4>
+                        <p className="text-sm text-muted-foreground">
+                          To: {delivery.organization?.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          <Calendar className="w-3 h-3 inline mr-1" />
+                          {new Date(delivery.created_at).toLocaleDateString()} at {new Date(delivery.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-success/10 text-success">
+                      Delivered ✓
+                    </span>
+                  </div>
+                </motion.div>
+              ))
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

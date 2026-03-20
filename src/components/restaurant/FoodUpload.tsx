@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useAppStore } from "@/store/appStore";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import type { FoodItem, QualityAnalysis } from "@/types";
 
@@ -19,7 +19,7 @@ interface FoodUploadProps {
 }
 
 export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
-  const { currentUser } = useAppStore();
+  const { user } = useAuth();
   const [step, setStep] = useState<"form" | "analyzing" | "result" | "not_food">("form");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [qualityAnalysis, setQualityAnalysis] = useState<QualityAnalysis | null>(null);
@@ -106,7 +106,7 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
   };
 
   const confirmDonation = async () => {
-    if (!qualityAnalysis || !currentUser) return;
+    if (!qualityAnalysis || !user) return;
     
     setIsSaving(true);
     
@@ -115,7 +115,7 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
       const { data: restaurant, error: restError } = await supabase
         .from("restaurants")
         .select("id, name, location")
-        .eq("user_id", currentUser.id)
+        .eq("user_id", user.id)
         .single();
       
       if (restError || !restaurant) {

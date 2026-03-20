@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useAppStore } from "@/store/appStore";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { FoodRequest, Organization } from "@/types";
 
 interface FoodRequestFormProps {
   onBack: () => void;
@@ -27,9 +27,9 @@ const foodTypeOptions = [
 ];
 
 export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => {
-  const { currentUser, addFoodRequest } = useAppStore();
+  const { user } = useAuth();
   const { toast } = useToast();
-  const org = currentUser as Organization;
+  const queryClient = useQueryClient();
 
   const [selectedFoodTypes, setSelectedFoodTypes] = useState<string[]>([]);
   const [quantity, setQuantity] = useState("");
@@ -62,7 +62,7 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
       const { data: organization, error: orgError } = await supabase
         .from("organizations")
         .select("id, name, address")
-        .eq("user_id", currentUser?.id)
+        .eq("user_id", user?.id)
         .single();
 
       if (orgError || !organization) {
@@ -98,21 +98,8 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
         return;
       }
 
-      // Also add to local store for immediate UI update
-      const request: FoodRequest = {
-        id: requestData.id,
-        organizationId: organization.id,
-        organizationName: organization.name,
-        organizationAddress: organization.address || "",
-        foodTypes: selectedFoodTypes,
-        quantity: quantity || "Any amount welcome",
-        urgency,
-        notes: notes || undefined,
-        status: "active",
-        createdAt: requestData.created_at,
-      };
-
-      addFoodRequest(request);
+      // Invalidate queries so the dashboard refreshes
+      queryClient.invalidateQueries({ queryKey: ["food_requests"] });
 
       toast({
         title: "Request Posted! 📢",
