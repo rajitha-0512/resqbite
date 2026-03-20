@@ -106,7 +106,7 @@ export const FoodUpload = ({ onClose, onSuccess }: FoodUploadProps) => {
   };
 
   const confirmDonation = async () => {
-    if (!qualityAnalysis || !currentUser) return;
+    if (!qualityAnalysis || !user) return;
     
     setIsSaving(true);
     
