@@ -98,21 +98,8 @@ export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => 
         return;
       }
 
-      // Also add to local store for immediate UI update
-      const request: FoodRequest = {
-        id: requestData.id,
-        organizationId: organization.id,
-        organizationName: organization.name,
-        organizationAddress: organization.address || "",
-        foodTypes: selectedFoodTypes,
-        quantity: quantity || "Any amount welcome",
-        urgency,
-        notes: notes || undefined,
-        status: "active",
-        createdAt: requestData.created_at,
-      };
-
-      addFoodRequest(request);
+      // Invalidate queries so the dashboard refreshes
+      queryClient.invalidateQueries({ queryKey: ["food_requests"] });
 
       toast({
         title: "Request Posted! 📢",
