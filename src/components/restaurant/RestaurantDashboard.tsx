@@ -50,7 +50,7 @@ interface RestaurantDashboardProps {
   onLogout: () => void;
 }
 
-type View = "dashboard" | "upload" | "match" | "tracking";
+type View = "dashboard" | "upload" | "match" | "tracking" | "history";
 
 export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
   const { user } = useAuth();
