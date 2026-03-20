@@ -1,61 +1,105 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Package, Truck, Clock, MapPin, CheckCircle,
-  LogOut, Bell, Calendar, Plus, Send, Building2
+  LogOut, Bell, Calendar, Plus, Send, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { DeliveryTracker } from "../shared/DeliveryTracker";
 import { FoodRequestForm } from "./FoodRequestForm";
-import { useAppStore } from "@/store/appStore";
-import { useToast } from "@/hooks/use-toast";
-import type { Delivery, Organization } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 interface OrganizationDashboardProps {
   onLogout: () => void;
 }
 
+interface DeliveryRecord {
+  id: string;
+  food_item_id: string | null;
+  restaurant_id: string;
+  organization_id: string;
+  volunteer_id: string | null;
+  status: string;
+  pickup_time: string | null;
+  delivery_time: string | null;
+  notes: string | null;
+  created_at: string;
+  food_item?: { name: string } | null;
+  restaurant?: { name: string; location: string | null } | null;
+  volunteer?: { name: string } | null;
+}
+
+interface FoodRequestRecord {
+  id: string;
+  organization_id: string;
+  food_type: string;
+  quantity: string;
+  urgency: string;
+  notes: string | null;
+  status: string;
+  created_at: string;
+}
+
 export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) => {
-  const { currentUser, deliveries, foodRequests, notifications, markNotificationRead } = useAppStore();
-  const { toast } = useToast();
-  const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
+  const { user } = useAuth();
+  const [selectedDelivery, setSelectedDelivery] = useState<DeliveryRecord | null>(null);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [activeTab, setActiveTab] = useState<"incoming" | "requests" | "history">("incoming");
 
-  const org = currentUser as Organization;
+  const { data: organization } = useQuery({
+    queryKey: ["organization", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("organizations").select("*").eq("user_id", user!.id).single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
 
-  const myDeliveries = deliveries.filter(d => d.organizationId === currentUser?.id);
-  const pendingDeliveries = myDeliveries.filter(d => 
+  const { data: deliveries = [], isLoading: deliveriesLoading } = useQuery({
+    queryKey: ["deliveries", "organization", organization?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("deliveries")
+        .select("*, food_item:food_items(name), restaurant:restaurants(name, location), volunteer:volunteers(name)")
+        .eq("organization_id", organization!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as DeliveryRecord[];
+    },
+    enabled: !!organization?.id,
+  });
+
+  const { data: foodRequests = [], isLoading: requestsLoading } = useQuery({
+    queryKey: ["food_requests", organization?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("food_requests")
+        .select("*")
+        .eq("organization_id", organization!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as FoodRequestRecord[];
+    },
+    enabled: !!organization?.id,
+  });
+
+  const pendingDeliveries = deliveries.filter(d =>
     ["pending", "volunteer_assigned", "picked_up", "in_transit"].includes(d.status)
   );
-  const completedDeliveries = myDeliveries.filter(d => d.status === "delivered");
+  const completedDeliveries = deliveries.filter(d => d.status === "delivered");
+  const activeRequests = foodRequests.filter(r => r.status === "active");
 
-  // Get my food requests
-  const myFoodRequests = foodRequests.filter(r => r.organizationId === currentUser?.id);
-  const activeRequests = myFoodRequests.filter(r => r.status === "active");
-
-  // Get unread notifications
-  const myNotifications = notifications.filter(
-    n => n.userId === currentUser?.id && !n.read
-  );
-
-  // Show toast for new notifications
-  useEffect(() => {
-    if (myNotifications.length > 0) {
-      const latest = myNotifications[myNotifications.length - 1];
-      toast({
-        title: latest.title,
-        description: latest.message,
-      });
-      markNotificationRead(latest.id);
-    }
-  }, [myNotifications.length]);
+  const isLoading = deliveriesLoading || requestsLoading;
 
   if (selectedDelivery) {
     return (
       <DeliveryTracker
-        delivery={selectedDelivery}
+        delivery={selectedDelivery as any}
         onBack={() => setSelectedDelivery(null)}
         userRole="organization"
       />
@@ -76,21 +120,12 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
 
   return (
     <div className="min-h-screen bg-gradient-hero">
-      {/* Header */}
       <div className="bg-card border-b border-border shadow-sm">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <Logo size="sm" />
           <div className="flex items-center gap-4">
-            {myNotifications.length > 0 && (
-              <div className="relative">
-                <Bell className="w-5 h-5 text-muted-foreground" />
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-accent text-accent-foreground rounded-full text-xs flex items-center justify-center">
-                  {myNotifications.length}
-                </span>
-              </div>
-            )}
             <span className="text-sm text-muted-foreground">
-              {currentUser?.name}
+              {organization?.name || user?.email}
             </span>
             <Button variant="ghost" size="sm" onClick={onLogout}>
               <LogOut className="w-4 h-4" />
@@ -100,27 +135,25 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-6">
-        {/* Welcome */}
-        <motion.div
-          className="mb-8"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <motion.div className="mb-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="text-2xl font-bold text-foreground">
-            Welcome, {currentUser?.name?.split(' ')[0]}! 🏠
+            Welcome, {organization?.name?.split(' ')[0] || 'Organization'}! 🏠
           </h1>
-          <p className="text-muted-foreground">
-            Track incoming food donations and manage requests
-          </p>
+          <p className="text-muted-foreground">Track incoming food donations and manage requests</p>
         </motion.div>
 
-        {/* Stats */}
+        {isLoading && (
+          <div className="flex justify-center items-center py-8">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
             { label: "Incoming", value: pendingDeliveries.length, icon: Truck, color: "bg-info/10 text-info" },
             { label: "Active Requests", value: activeRequests.length, icon: Send, color: "bg-warning/10 text-warning" },
-            { label: "Received Today", value: completedDeliveries.length, icon: Package, color: "bg-success/10 text-success" },
-            { label: "Total Received", value: completedDeliveries.length, icon: CheckCircle, color: "bg-primary/10 text-primary" },
+            { label: "Received", value: completedDeliveries.length, icon: Package, color: "bg-success/10 text-success" },
+            { label: "Total Received", value: deliveries.length, icon: CheckCircle, color: "bg-primary/10 text-primary" },
           ].map((stat, index) => (
             <motion.div
               key={stat.label}
@@ -139,14 +172,11 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
           ))}
         </div>
 
-        {/* Quick Action - Request Food */}
         <motion.button
           className="w-full bg-gradient-primary text-primary-foreground rounded-xl p-6 shadow-lg mb-8 flex items-center justify-between group"
           onClick={() => setShowRequestForm(true)}
           whileHover={{ scale: 1.01 }}
           whileTap={{ scale: 0.99 }}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
         >
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-primary-foreground/20 rounded-xl flex items-center justify-center">
@@ -154,9 +184,7 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
             </div>
             <div className="text-left">
               <h3 className="text-lg font-bold">Request Food Donation</h3>
-              <p className="text-primary-foreground/80 text-sm">
-                Let restaurants know what you need
-              </p>
+              <p className="text-primary-foreground/80 text-sm">Let restaurants know what you need</p>
             </div>
           </div>
         </motion.button>
@@ -166,7 +194,7 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
           {[
             { id: "incoming", label: "Incoming", count: pendingDeliveries.length },
             { id: "requests", label: "My Requests", count: activeRequests.length },
-            { id: "history", label: "Received", count: completedDeliveries.length },
+            { id: "history", label: "History", count: completedDeliveries.length },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -189,42 +217,16 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
           ))}
         </div>
 
-        {/* Notifications Banner */}
-        {pendingDeliveries.length > 0 && activeTab === "incoming" && (
-          <motion.div
-            className="bg-info/10 border border-info/30 rounded-xl p-4 mb-6 flex items-center gap-4"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-          >
-            <div className="w-12 h-12 bg-info rounded-xl flex items-center justify-center">
-              <Bell className="w-6 h-6 text-info-foreground" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-foreground">
-                {pendingDeliveries.length} Delivery{pendingDeliveries.length > 1 ? 'ies' : 'y'} Incoming!
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Track your deliveries in real-time below
-              </p>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Tab Content - Incoming Deliveries */}
+        {/* Incoming Deliveries */}
         {activeTab === "incoming" && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             {pendingDeliveries.length === 0 ? (
               <div className="bg-card rounded-xl p-8 text-center shadow-md border border-border/50">
                 <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
                   <Package className="w-8 h-8 text-muted-foreground" />
                 </div>
                 <h3 className="font-semibold text-foreground mb-2">No incoming deliveries</h3>
-                <p className="text-muted-foreground text-sm mb-4">
-                  New food donations will appear here when matched with your organization
-                </p>
+                <p className="text-muted-foreground text-sm mb-4">New food donations will appear here when matched</p>
                 <Button variant="outline" onClick={() => setShowRequestForm(true)}>
                   <Plus className="w-4 h-4 mr-2" />
                   Post a Food Request
@@ -244,32 +246,20 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        {delivery.foodItem?.imageUrl ? (
-                          <img
-                            src={delivery.foodItem.imageUrl}
-                            alt={delivery.foodItem.name}
-                            className="w-16 h-16 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 bg-muted rounded-lg flex items-center justify-center">
-                            <Package className="w-8 h-8 text-muted-foreground" />
-                          </div>
-                        )}
+                        <div className="w-16 h-16 bg-muted rounded-lg flex items-center justify-center">
+                          <Package className="w-8 h-8 text-muted-foreground" />
+                        </div>
                         <div>
                           <h4 className="font-semibold text-foreground">
-                            {delivery.foodItem?.name || "Food Donation"}
+                            {delivery.food_item?.name || "Food Donation"}
                           </h4>
                           <p className="text-sm text-muted-foreground">
-                            From: {delivery.restaurantName || delivery.foodItem?.restaurantName}
+                            From: {delivery.restaurant?.name || "Restaurant"}
                           </p>
                           <div className="flex items-center gap-3 mt-1">
                             <span className="text-xs flex items-center gap-1 text-muted-foreground">
                               <Clock className="w-3 h-3" />
-                              {delivery.estimatedTime || "TBD"}
-                            </span>
-                            <span className="text-xs flex items-center gap-1 text-muted-foreground">
-                              <MapPin className="w-3 h-3" />
-                              {delivery.distance || "TBD"}
+                              {new Date(delivery.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
                         </div>
@@ -283,9 +273,9 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
                         }`}>
                           {delivery.status === "pending" ? "Awaiting Volunteer" : delivery.status.replace("_", " ")}
                         </span>
-                        {delivery.volunteerName && (
+                        {delivery.volunteer && (
                           <p className="text-xs text-muted-foreground mt-2">
-                            Volunteer: {delivery.volunteerName}
+                            Volunteer: {delivery.volunteer.name}
                           </p>
                         )}
                       </div>
@@ -297,21 +287,16 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
           </motion.div>
         )}
 
-        {/* Tab Content - My Requests */}
+        {/* My Requests */}
         {activeTab === "requests" && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            {myFoodRequests.length === 0 ? (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            {foodRequests.length === 0 ? (
               <div className="bg-card rounded-xl p-8 text-center shadow-md border border-border/50">
                 <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
                   <Send className="w-8 h-8 text-muted-foreground" />
                 </div>
                 <h3 className="font-semibold text-foreground mb-2">No food requests</h3>
-                <p className="text-muted-foreground text-sm mb-4">
-                  Post a request to let restaurants know what food you need
-                </p>
+                <p className="text-muted-foreground text-sm mb-4">Post a request to let restaurants know what food you need</p>
                 <Button variant="hero" onClick={() => setShowRequestForm(true)}>
                   <Plus className="w-4 h-4 mr-2" />
                   Create Request
@@ -319,7 +304,7 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
               </div>
             ) : (
               <div className="grid gap-4">
-                {myFoodRequests.map((request, index) => (
+                {foodRequests.map((request, index) => (
                   <motion.div
                     key={request.id}
                     className="bg-card rounded-xl p-5 shadow-md border border-border/50"
@@ -333,18 +318,14 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
                           request.status === "active" ? "bg-warning/10" : "bg-success/10"
                         }`}>
                           {request.status === "active" ? (
-                            <Send className={`w-6 h-6 text-warning`} />
+                            <Send className="w-6 h-6 text-warning" />
                           ) : (
                             <CheckCircle className="w-6 h-6 text-success" />
                           )}
                         </div>
                         <div>
-                          <h4 className="font-semibold text-foreground">
-                            Food Request
-                          </h4>
-                          <p className="text-sm text-muted-foreground">
-                            {request.quantity}
-                          </p>
+                          <h4 className="font-semibold text-foreground">Food Request</h4>
+                          <p className="text-sm text-muted-foreground">{request.quantity}</p>
                         </div>
                       </div>
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -356,10 +337,8 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-2 mb-3">
-                      {request.foodTypes.map((type) => (
-                        <span key={type} className="text-xs bg-muted px-2 py-1 rounded">
-                          {type}
-                        </span>
+                      {request.food_type.split(", ").map((type) => (
+                        <span key={type} className="text-xs bg-muted px-2 py-1 rounded">{type}</span>
                       ))}
                     </div>
                     {request.notes && (
@@ -372,47 +351,48 @@ export const OrganizationDashboard = ({ onLogout }: OrganizationDashboardProps) 
           </motion.div>
         )}
 
-        {/* Tab Content - Recent History */}
+        {/* History */}
         {activeTab === "history" && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             {completedDeliveries.length === 0 ? (
               <div className="bg-card rounded-xl p-8 text-center shadow-md border border-border/50">
                 <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
                   <Calendar className="w-8 h-8 text-muted-foreground" />
                 </div>
                 <h3 className="font-semibold text-foreground mb-2">No donations received yet</h3>
-                <p className="text-muted-foreground text-sm">
-                  Completed donations will appear here
-                </p>
+                <p className="text-muted-foreground text-sm">Completed donations will appear here</p>
               </div>
             ) : (
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="grid gap-4">
                 {completedDeliveries.map((delivery, index) => (
                   <motion.div
                     key={delivery.id}
-                    className="bg-card rounded-xl p-4 shadow-md border border-border/50"
+                    className="bg-card rounded-xl p-5 shadow-md border border-border/50"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
+                    transition={{ delay: index * 0.05 }}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
-                        <CheckCircle className="w-6 h-6 text-success" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
+                          <CheckCircle className="w-6 h-6 text-success" />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-foreground">
+                            {delivery.food_item?.name || "Food Donation"}
+                          </h4>
+                          <p className="text-sm text-muted-foreground">
+                            From: {delivery.restaurant?.name || "Restaurant"}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            <Calendar className="w-3 h-3 inline mr-1" />
+                            {new Date(delivery.created_at).toLocaleDateString()} at {new Date(delivery.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="font-semibold text-foreground">
-                          {delivery.foodItem?.name || "Food Donation"}
-                        </h4>
-                        <p className="text-sm text-muted-foreground">
-                          {delivery.foodItem?.quantity} {delivery.foodItem?.unit}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          From: {delivery.restaurantName || delivery.foodItem?.restaurantName}
-                        </p>
-                      </div>
+                      <span className="px-3 py-1 rounded-full text-xs font-medium bg-success/10 text-success">
+                        Received ✓
+                      </span>
                     </div>
                   </motion.div>
                 ))}
