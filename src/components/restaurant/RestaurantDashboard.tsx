@@ -264,7 +264,7 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
               )}
 
               {pendingItems.length > 0 && (
-                <div>
+                <div className="mb-8">
                   <h2 className="text-lg font-bold text-foreground mb-4">Pending Donations</h2>
                   <div className="grid md:grid-cols-2 gap-4">
                     {pendingItems.map((item) => (
@@ -291,6 +291,47 @@ export const RestaurantDashboard = ({ onLogout }: RestaurantDashboardProps) => {
                             Find Organization
                           </Button>
                         </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* History Section */}
+              {completedDeliveries.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold text-foreground">Recent History</h2>
+                    {completedDeliveries.length > 3 && (
+                      <Button variant="ghost" size="sm" onClick={() => setView("history")}>
+                        View All
+                        <ChevronRight className="w-4 h-4 ml-1" />
+                      </Button>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    {completedDeliveries.slice(0, 3).map((delivery) => (
+                      <motion.div
+                        key={delivery.id}
+                        className="bg-card rounded-xl p-4 shadow-md border border-border/50 flex items-center justify-between"
+                        whileHover={{ y: -2 }}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-success/10 rounded-lg flex items-center justify-center">
+                            <CheckCircle className="w-5 h-5 text-success" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-foreground">
+                              {delivery.food_item?.name || "Food Delivery"}
+                            </h4>
+                            <p className="text-sm text-muted-foreground">
+                              To: {delivery.organization?.name}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(delivery.created_at).toLocaleDateString()}
+                        </span>
                       </motion.div>
                     ))}
                   </div>
