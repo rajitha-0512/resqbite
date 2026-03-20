@@ -27,9 +27,9 @@ const foodTypeOptions = [
 ];
 
 export const FoodRequestForm = ({ onBack, onSuccess }: FoodRequestFormProps) => {
-  const { currentUser, addFoodRequest } = useAppStore();
+  const { user } = useAuth();
   const { toast } = useToast();
-  const org = currentUser as Organization;
+  const queryClient = useQueryClient();
 
   const [selectedFoodTypes, setSelectedFoodTypes] = useState<string[]>([]);
   const [quantity, setQuantity] = useState("");
